@@ -73,3 +73,15 @@ tests/
 # TacSL sensor
 **/tactile_record/*
 **/gelsight_r15_data/*
+
+# --- Project-specific ---
+# Demonstration shards and rollout videos are large (tens of MB each); the small
+# lookup tables (grasp_table.pt, carry_waypoints.pt) and meta.json files stay.
+data/pick_place_demos/**/shard_*.pt
+data/pick_place_demos/**/*.mp4
+.tmp_diag.txt
+
+# The vendored robot + basket USD assets are required to run anything in this
+# repo, so exempt them from the template's blanket USD ban above (LFS-tracked).
+!source/reBot_RL/data/**/*.usd
+!source/reBot_RL/data/**/*.usda
