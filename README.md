@@ -63,6 +63,10 @@ to get the interactive viewer (costs throughput, so leave it off for training).
 | `Rebot-Lift-Cube-Vision-v0` / `-Play-v0` | Lift task observed through two rig cameras (front + wrist) for the distillation student. |
 | `Rebot-Lift-Cube-Vision-Rand-v0` / `-Play-v0` | Vision lift with visual domain randomization (lighting, materials, camera jitter). |
 | `Rebot-PickPlace-v0` / `-Play-v0` | Two-object pick-and-place into a fixed basket. Scaled YCB soup can + sugar box spawn on the +y side, basket on the -y side; success = both objects inside at episode end. 39-D privileged obs, dense shaping + curriculum + mid-episode nudge perturbations. |
+| `Rebot-PrecisionSlot-v0` / `-Loose-v0` / `-Tight-v0` / `-Play-v0` | **Challenge suite.** Grasp a block and slide it horizontally into a snug slot at 3.0 / 1.5 / 0.5 mm per-side clearance. Where the basket accepts ±50 mm and any orientation, this accepts ±1.5 mm and ±6.9°. 34-D obs, Factory-style multi-scale keypoint shaping. See [docs/envs/precision-slot.md](docs/envs/precision-slot.md). |
+| `Rebot-ClutterExtract-v0` / `-Tight-v0` / `-Play-v0` | **Challenge suite.** Extract a target block from a row of four lighter distractors and set it down in a goal zone *without toppling a neighbour*. Free gaps measure 7–19 mm after jitter. The greedy reach-and-close action is frequently wrong. 42-D obs. See [docs/envs/clutter-extract.md](docs/envs/clutter-extract.md). |
+| `Rebot-DrawerOrder-v0` / `-Play-v0` | **Challenge suite.** Pull a drawer open by its handle, *then* stow a block in it. The carry reward is hard-gated to exactly zero until the drawer is open, so no gradient bridges the two stages. Procedurally authored one-DOF cabinet. 33-D obs. See [docs/envs/drawer-order.md](docs/envs/drawer-order.md). |
+| `Rebot-PreGrasp-v0` / `-Play-v0` | **Challenge suite — ⚠ premise disproven, needs redesign.** Intended as extrinsic dexterity (tip an ungraspable block up, then grasp it). Measurement showed the fingers force open to ~120 mm, so the start state is graspable after all. Builds and tests clean; see [docs/envs/pregrasp.md](docs/envs/pregrasp.md) for the numbers and redesign options. |
 | `Rebot-PickPlace-v1` / `-Play-v1` | v1: randomized movable basket (kinematic rigid body repositioned every reset), wider object spawns with lying-on-side probability, per-env object scale / mass / gain / start-pose diversity, 41-D obs (basket center xy appended), sparse rewards only. Stage 0 of the planner→ACT→residual pipeline. |
 
 All tasks register an `rl_games_cfg_entry_point`; the lift task additionally has
@@ -141,12 +145,72 @@ python scripts/distillation/train_student.py --data_dir data/distillation/<times
 python scripts/distillation/play_student.py --checkpoint logs/distillation/<run>/best.pt
 ```
 
-## Smoke tests
+## Challenge suite
+
+A second family of tasks, each isolating a manipulation skill the pick-and-place task does
+not exercise. Design rationale, the measured hardware envelope every task respects, and the
+per-task validation ladder are in [docs/CHALLENGE_SUITE.md](docs/CHALLENGE_SUITE.md);
+per-env reference docs are in [docs/envs/](docs/envs/README.md).
+
+| env | skill under test | status |
+|---|---|---|
+| `Rebot-PrecisionSlot-*` | tight-tolerance horizontal insertion | tests pass; achievability probe needs re-tuning |
+| `Rebot-ClutterExtract-*` | constrained retrieval without disturbing neighbours | tests pass; topple threshold proven reachable |
+| `Rebot-DrawerOrder-*` | articulated joint + irreversible precedence | tests pass; scripted pull unverified |
+| `Rebot-PreGrasp-*` | non-prehensile reconfiguration | ⚠ premise disproven, needs redesign |
+
+### Measured constraints — read these before designing anything for this arm
+
+Every one of these was *believed* before it was measured, and every one broke something.
+Raw data lands in `logs/analysis/`.
+
+| constraint | value | harness |
+|---|---|---|
+| **No top-down grasp below z = 0.19 m** | 0.00 % of table-height voxels admit a finger axis within 26° of vertical (819k configs) | `analysis/reachability_map.py` |
+| **TCP is 41.9 mm behind `gripper_end`** — *not* the 75 mm used elsewhere in this repo | a 33 mm error; makes any scripted grasp close on air | see below |
+| **Gripper opens 89.1 mm on command, ~120 mm if forced** | `_GRIPPER_OPEN = 0.045` is a *per-finger* joint value and both fingers move | `analysis/gripper_stroke.py` |
+| **The TCP cannot go below ~44 mm above the table** | the gripper bottoms out on the table first; usable band x ≈ 0.22–0.26 m | `analysis/tcp_floor.py` |
+| **A post-build USD `xformOp:scale` never reaches the collider** | only the render mesh scales | `analysis/gripper_stroke.py` |
+| **The USD authors the finger drive at 100 N/m** | caps squeeze at ~1.7 N; challenge envs override to 2000 N/m | `analysis/gripper_stiffness_sweep.py` |
+
+The TCP figure is the one to internalise: with the fingers shut, the two finger-body origins
+coincide, and *that* point is the grasp point. A constant offset error is nearly invisible in
+a reach reward — the policy just learns a shifted target — but it is fatal to any scripted
+grasp. Challenge envs bind their `ee_frame` to `mdp.TCP_OFFSET`; the older lift/pick-place
+envs still use the inherited `-0.075` and were left untouched.
 
 ```bash
-python scripts/test_pick_place_env.py --headless      # v0 env: shapes, predicates, terminations, rewards
-python scripts/test_pick_place_env_v1.py --headless   # v1 env: 41-D obs, randomized basket, spawn geometry
-python scripts/author_basket_usd.py                   # (re)author the movable basket USD (plain pxr, no sim)
+# measurement harnesses
+python scripts/analysis/reachability_map.py --num_envs 2048 --batches 400   # workspace map
+python scripts/analysis/query_reachability.py                               # query it
+python scripts/analysis/gripper_stroke.py                                   # opening + TCP calibration
+python scripts/analysis/tcp_floor.py                                        # how low the TCP can go
+python scripts/analysis/grasp_geometry.py --block_h 0.07                    # grasp envelope vs height
+
+# achievability probes
+python scripts/challenge/slot_insertion_probe.py --grip_z 0.084
+python scripts/challenge/pregrasp_probe.py --num_envs 96
+
+# assets and visualisation
+python scripts/challenge/author_drawer_usd.py                               # (re)author the cabinet
+python scripts/challenge/record_env_video.py --task Rebot-DrawerOrder-Play-v0 \
+    --cam_eye 0.10 -0.40 0.28 --cam_target 0.245 0.0 0.075
+```
+
+## Smoke tests
+
+Every challenge test collects failures in a list rather than asserting, so one run reports
+everything, and each fires at least three negative controls.
+
+```bash
+python scripts/test_precision_slot_env.py   # geometry, success predicate + 4 negative controls
+python scripts/test_clutter_env.py          # row pitch, topple constraint + 3 negative controls
+python scripts/test_drawer_env.py           # articulation, handle reach, precedence gate + 4 controls
+python scripts/test_pregrasp_env.py         # shadow width, uprighting gradient + 3 negative controls
+
+python scripts/test_pick_place_env.py       # v0 env: shapes, predicates, terminations, rewards
+python scripts/test_pick_place_env_v1.py    # v1 env: 41-D obs, randomized basket, spawn geometry
+python scripts/author_basket_usd.py         # (re)author the movable basket USD (plain pxr, no sim)
 ```
 
 ## Repository layout
@@ -158,7 +222,10 @@ scripts/
   probe_pick_place_policy.py         failure-mode diagnostics
   scripted_expert/                   hybrid-expert demos, BC, BC→rl_games transplant
   distillation/                      teacher→student vision distillation (+DAgger)
+  analysis/                          hardware measurement harnesses (workspace, gripper, TCP)
+  challenge/                         achievability probes, asset authoring, video recording
   test_pick_place_env*.py            env smoke tests
+  test_{precision_slot,clutter,drawer,pregrasp}_env.py   challenge env smoke tests
   author_basket_usd.py               one-off basket USD authoring
 source/reBot_RL/                     pip-installable Isaac Lab extension
   reBot_RL/assets/rebot_arm.py       arm articulation config
@@ -166,8 +233,14 @@ source/reBot_RL/                     pip-installable Isaac Lab extension
     lift/                            lift-to-pose env + agent configs
     lift_vision/                     two-camera lift env + visual randomization
     pick_place/                      pick-and-place v0 + v1 envs, mdp terms
+    challenge/                       challenge suite envs + their own mdp/ (kept separate
+                                     from pick_place/mdp on purpose — see docs)
   data/RS-rebot-dev-arm/             vendored robot USD asset (LFS) + validation docs
   data/basket/basket.usda            movable basket asset for v1
+  data/drawer/drawer.usda            procedurally authored cabinet for the drawer task
+docs/CHALLENGE_SUITE.md              measured hardware envelope + design rationale
+docs/envs/                           one reference doc per environment
+docs/HANDOFF.md                      current state, open questions, gotchas
 data/pick_place_demos/               expert lookup tables + demo metadata
 ```
 
@@ -183,8 +256,17 @@ data/pick_place_demos/               expert lookup tables + demo metadata
   (these envs do).
 - **No top-down grasps at table level:** the wrist pitch chain (j2/j3/j4) cannot
   point the fingers down next to the table, so policies grasp side-on. Fingers
-  extend 0.089 m along `gripper_end` local **-X**; the TCP frame sits at offset
-  (-0.075, 0, 0).
+  extend 0.089 m along `gripper_end` local **-X**.
+- **The true TCP offset is (-0.0419, 0, 0)**, measured: with the fingers shut the two
+  finger-body origins coincide, and that point is the grasp point. The `(-0.075, 0, 0)`
+  used by the lift and pick-place envs is **33 mm too far forward**. Those envs were left
+  as they are — a constant offset just shifts the target their policies learned, and
+  changing it would invalidate the 87.9 % result — but do not carry that number into
+  anything new, and never into a scripted grasp. Challenge envs use `mdp.TCP_OFFSET`.
+- **The gripper opens 89.1 mm on command, ~120 mm if forced.** `_GRIPPER_OPEN = 0.045` is a
+  per-finger prismatic joint value, not a stroke, and both fingers move.
+- **The TCP cannot be placed below ~44 mm above the table** — the gripper bottoms out first.
+  Any fixture feature the gripper must touch has to sit above that.
 - **Quaternions are (x, y, z, w)** in Isaac Lab 3.0 — identity is `(0, 0, 0, 1)`.
   A 2.x-style `(1, 0, 0, 0)` silently flips 180° about X.
 
