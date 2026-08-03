@@ -52,7 +52,15 @@ WRIST_CAM_CFG = CameraCfg(
     # "c" (forward prim +X, up prim +Z). NOTE the offset frame: the gripper_end geometry prim is
     # NOT the physics body frame -- it spawns world-aligned -- so tune this empirically via the
     # sweep scripts rather than deriving quaternions from link axes.
-    offset=CameraCfg.OffsetCfg(pos=(-0.092, 0.0, 0.042), rot=(0.5, -0.5, -0.5, 0.5), convention="opengl"),
+    # 2026-08-03: tilted -30 deg about the camera-local X (pitch) axis so the view centers the
+    # gripper instead of sitting perpendicular to the wrist (Big Will's pick, tilt_x_m30 from
+    # scripts/wrist_cam_tilt_sweep.py; optical axis lands 1.8 deg off the TCP, camera->TCP
+    # 0.171 m). rot = old (0.5, -0.5, -0.5, 0.5) composed with R_x(-30 deg), xyzw.
+    offset=CameraCfg.OffsetCfg(
+        pos=(-0.092, 0.0, 0.042),
+        rot=(0.353553, -0.353553, -0.612372, 0.612372),
+        convention="opengl",
+    ),
     spawn=sim_utils.PinholeCameraCfg(
         focal_length=_APERTURE / 1.80083,  # 2*tan(42 deg) -> 84 deg HFOV
         horizontal_aperture=_APERTURE,
