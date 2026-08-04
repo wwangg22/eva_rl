@@ -93,3 +93,14 @@ class RebotPickPlaceVisionEnvCfg_PLAY(RebotPickPlaceV1EnvCfg_PLAY):
         # the D455 sits 0.9 m back with a 90 deg HFOV: push neighbor envs out of view
         # (2.0 m spacing puts them squarely in frame; 6.0 proven in lift_vision)
         self.scene.env_spacing = 6.0
+        # Antialiasing pinned EXPLICITLY (EXP08 renderer forensics, full story in
+        # eva_bc docs/experiments/EXP08_visual_policy.md):
+        # - DLSS (the Isaac default) is TEMPORAL: frame content depends on GPU load
+        #   between steps (a teacher forward at chunk boundaries collapsed the vision
+        #   student 80%->36%). Policy-driving loops must therefore do NO optional GPU
+        #   work between steps (teacher labeling goes post-hoc).
+        # - The alternatives are worse: with FXAA or Off the RTX real-time path's
+        #   per-frame projection jitter shows up un-integrated as ~31-37 std shimmer
+        #   on EVERY pixel (static scene; identical for FXAA/Off, spp has no effect).
+        # DLSS frames are what every EXP08 policy is trained/evaled on.
+        self.sim.render.antialiasing_mode = "DLSS"

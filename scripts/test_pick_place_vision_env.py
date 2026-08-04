@@ -69,6 +69,14 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dump-states", default=None, help="save the 41-D policy obs trajectory to this .pt")
+    parser.add_argument("--aa-mode", default=None, choices=["Off", "FXAA", "DLSS", "TAA", "DLAA"],
+                        help="override sim.render.antialiasing_mode")
+    parser.add_argument("--spp", type=int, default=None,
+                        help="override sim.render.samples_per_pixel (direct-lighting spp; "
+                             "per-frame, load-independent noise reduction)")
+    parser.add_argument("--static", action="store_true",
+                        help="zero actions (static scene): report per-pixel temporal noise stats "
+                             "instead of failing freshness (frames SHOULD be near-identical)")
     parser.add_argument("--env-spacing", type=float, default=None,
                         help="override scene.env_spacing (match the vision env's 6.0 when dumping the "
                              "camera-free reference, so world-coordinate fp noise doesn't confound check e)")
@@ -102,6 +110,10 @@ def main() -> int:
     env_cfg.seed = args.seed
     if args.env_spacing is not None:
         env_cfg.scene.env_spacing = args.env_spacing
+    if args.spp is not None:
+        env_cfg.sim.render.samples_per_pixel = args.spp
+    if args.aa_mode is not None:
+        env_cfg.sim.render.antialiasing_mode = args.aa_mode
 
     has_cameras = hasattr(env_cfg.scene, "wrist_cam") and env_cfg.scene.wrist_cam is not None
     failures: list[str] = []
@@ -153,6 +165,8 @@ def main() -> int:
     # ---- drive: deterministic sinusoid, arm joints moving, gripper slow square wave ----
     def action_at(t: int) -> torch.Tensor:
         a = torch.zeros(n, 7, device=u.device)
+        if args.static:
+            return a
         for j in range(6):
             a[:, j] = 0.4 * math.sin(2 * math.pi * t / 60.0 + j * 0.7)
         a[:, 6] = 1.0 if (t // 40) % 2 == 0 else -1.0
@@ -160,6 +174,7 @@ def main() -> int:
 
     prev_frames: dict[str, torch.Tensor] = {}
     fresh_log: dict[str, list[float]] = {"wrist_rgb": [], "workspace_rgb": []}
+    static_frames: dict[str, list[torch.Tensor]] = {"wrist_rgb": [], "workspace_rgb": []}
     depth_mins: list[float] = []
     states: list[torch.Tensor] = []
 
@@ -174,6 +189,8 @@ def main() -> int:
                 if key in prev_frames:
                     fresh_log[key].append((frame - prev_frames[key]).abs().mean().item())
                 prev_frames[key] = frame
+                if args.static and t >= WARMUP_STEPS:
+                    static_frames[key].append(frame[0].cpu())
             depth = u.scene.sensors["wrist_cam"].data.output["distance_to_image_plane"]
             finite = depth[torch.isfinite(depth)]
             if finite.numel():
@@ -183,7 +200,7 @@ def main() -> int:
     print(f"[fps] {args.steps} steps x {n} envs in {elapsed:.1f} s = {fps:.0f} env-steps/s "
           f"({args.steps / elapsed:.1f} policy Hz)")
 
-    # ---- check b: freshness ----
+    # ---- check b: freshness (skipped in --static: frames SHOULD be near-identical) ----
     for key, diffs in fresh_log.items():
         if not diffs:
             continue
@@ -192,8 +209,21 @@ def main() -> int:
         print(f"[freshness] {key}: consecutive-diff min {min(post):.2f} / median "
               f"{sorted(post)[len(post) // 2]:.2f} / max {max(post):.2f} "
               f"(after {WARMUP_STEPS}-step warmup); stale steps: {stale[:10] if stale else 'none'}")
-        if stale:
+        if stale and not args.static:
             failures.append(f"{key}: {len(stale)} stale frames (first at step {stale[0]})")
+
+    # ---- static-scene temporal noise anatomy ----
+    for key, frames in static_frames.items():
+        if not frames:
+            continue
+        stack = torch.stack(frames)  # (T, H, W, 3), env 0, static scene
+        tstd = stack.std(dim=0)  # per-pixel temporal std
+        tmean_drift = (stack.mean(dim=(1, 2, 3)) - stack.mean()).abs().max()
+        frac_noisy = (tstd > 5.0).float().mean()
+        print(f"[static-noise] {key}: per-pixel temporal std mean {tstd.mean():.2f} / "
+              f"p95 {tstd.flatten().kthvalue(int(0.95 * tstd.numel())).values:.2f} / "
+              f"max {tstd.max():.1f}; frac pixels std>5: {frac_noisy:.2%}; "
+              f"global-mean drift {tmean_drift:.2f}")
 
     # ---- check c: wrist depth housing ----
     if depth_mins:
