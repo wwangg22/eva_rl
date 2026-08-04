@@ -24,6 +24,15 @@ the displacement was ~206 mm, against 120-277 mm from the row to the goal).
 The quantity needed to catch this was already computed every step: ``distractors_disturbed``
 was wired to a shaping reward and to nothing else. It is now also a constraint, at
 ``DISTURB_TOL``. See ``eva_bc/clutter/docs/15_STRICT_METRIC.md``.
+
+Amended 2026-08-04 -- the row was in the same place every episode
+-----------------------------------------------------------------
+The row used to spawn square to the robot with the target always in the middle slot, so a
+policy could hard-code both the grasp axis and which block to reach for. ``reset_clutter_row``
+now draws a whole-row heading and centre, and draws **which of the five slots holds the
+target**. The first is an isometry and changes only the arm's problem; the second changes the
+clutter geometry itself, since an end slot has a neighbour on one side only. See
+``eva_bc/clutter/docs/17_ROW_RANDOMISATION.md``.
 """
 
 from __future__ import annotations
@@ -31,7 +40,7 @@ from __future__ import annotations
 import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import ManagerTermBase, ManagerTermBaseCfg, SceneEntityCfg
-from isaaclab.utils.math import quat_apply
+from isaaclab.utils.math import quat_apply, quat_from_euler_xyz
 
 from . import common
 
@@ -57,6 +66,44 @@ GOAL_XY = (0.185, -0.185)
 GOAL_RADIUS = 0.045
 #: the target must clear the row before it counts as extracted
 EXTRACT_Z = 0.090
+
+# ---------------------------------------------------------------------------
+# The row. `reset_clutter_row` owns the layout; the scene's `init_state` poses are
+# only what the blocks look like before the first reset. Single source of truth --
+# the env cfg imports these rather than restating them.
+# ---------------------------------------------------------------------------
+
+#: distance of the row's centre from the arm's base [m]. r ~ 0.25 keeps every block
+#: inside the measured graspable envelope (r <= 0.32, docs/CHALLENGE_SUITE.md C4) --
+#: which is a constraint on ``ROW_YAW_RANGE`` too, since rotating the row swings its
+#: end blocks outward. Measured: docs/envs/clutter-extract.md.
+ROW_X = 0.250
+#: block-to-block spacing along the row [m]. 42 mm against a 30 mm block leaves a
+#: 12 mm free gap.
+ROW_PITCH = 0.042
+#: blocks in the row: four distractors and the target, which occupies one of the five.
+N_SLOTS = 1 + len(DISTRACTOR_NAMES)
+
+#: **Whole-row heading jitter** [rad], applied rigidly about the row's centre.
+#:
+#: A rigid rotation leaves the *clutter* geometry exactly as it was -- the gaps, the
+#: blocks' own faces and the neighbours' bearings relative to the target are all
+#: invariant. What it changes is the **arm's** problem: the grasp axis is no longer
+#: world-aligned, so a manoeuvre that hard-codes "the row runs along y" stops working,
+#: and the far end of the row swings out toward the edge of the reachable envelope.
+ROW_YAW_RANGE = 0.30
+#: rigid translation of the row's centre [m], both axes. Small on purpose: it exists so
+#: that "the row is at x = 250 mm" cannot be baked into a policy, not to make reaching
+#: hard, and it stacks with the heading swing against the r <= 0.32 envelope.
+ROW_XY_RANGE = 0.010
+
+#: per-block spawn jitter, in the ROW's own frame. The target gets no cross-row jitter
+#: (its slot defines that) and the distractors get no yaw jitter, which is how the row
+#: has always spawned; only the frame they are expressed in is new.
+TARGET_JITTER_X = 0.012
+TARGET_JITTER_YAW = 0.20
+DISTRACTOR_JITTER_X = 0.010
+DISTRACTOR_JITTER_Y = 0.005
 
 
 def _up_z(env: ManagerBasedRLEnv, name: str) -> torch.Tensor:
@@ -190,6 +237,101 @@ class clutter_success(ManagerTermBase):
         ok = target_at_goal(env, name, tol)
         self._ever.copy_(self._ever | ok)
         return ok.float()
+
+
+def _uniform(n: int, half: float, device) -> torch.Tensor:
+    """``n`` samples from U(-half, +half). Returns exact zeros when ``half`` is 0."""
+    return (torch.rand(n, device=device) * 2.0 - 1.0) * half
+
+
+def reset_clutter_row(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor,
+    row_x: float = ROW_X,
+    pitch: float = ROW_PITCH,
+    row_yaw: float = ROW_YAW_RANGE,
+    row_xy: float = ROW_XY_RANGE,
+    random_slot: bool = True,
+) -> None:
+    """Reset event: lay out the whole row, and choose which block is the target.
+
+    This replaces the five independent ``reset_root_state_uniform`` terms the task used
+    until 2026-08-04. **A rigid row pose cannot be composed out of per-asset resets** --
+    every block has to share one heading and one centre -- and the target's slot has to be
+    drawn once and then read by the other four, so one term owns all five.
+
+    Two things are randomised that were not before, and they are different in kind:
+
+    **The row's pose** -- heading ``U(-row_yaw, row_yaw)`` about the row's centre, plus a
+    small rigid translation. This is an *isometry of the row*: the free gaps, the blocks'
+    faces and every neighbour's bearing from the target are unchanged. It constrains only
+    the **arm**, by removing the assumption that the grasp axis is world-aligned and that
+    the row sits at a known place. Rotating the row also swings its end blocks outward, so
+    ``ROW_YAW_RANGE`` is bounded by the reachable envelope, not by taste.
+
+    **Which slot holds the target** -- previously always the middle one, so two neighbours
+    always flanked it at exactly one pitch. This *does* change the geometry, and
+    asymmetrically: at an end slot the target has a neighbour on one side only, and the
+    fingers' outer half sweeps free air. Expect the five slots to differ in difficulty and
+    report success per slot rather than pooled -- a pooled rate mixes a ~2x span.
+
+    The four distractors take the four remaining slots **in row order**, so
+    ``distractor_0`` is always the most negative along the row's own axis whatever the
+    target does. That keeps ``clutter_obs`` and every per-block statistic interpretable.
+
+    Layout is in the row's own frame: local ``x`` points away from the arm (the block's
+    36 mm faces), local ``y`` runs along the row (its 30 mm faces, and the direction the
+    12 mm gaps are measured in).
+    """
+    n = len(env_ids)
+    dev = env.device
+    origins = env.scene.env_origins[env_ids]
+    zeros = torch.zeros(n, device=dev)
+
+    # --- which slot holds the target -------------------------------------------------
+    slot = (torch.randint(0, N_SLOTS, (n,), device=dev) if random_slot
+            else torch.full((n,), N_SLOTS // 2, dtype=torch.long, device=dev))
+    # the j-th distractor takes the j-th slot with the target's removed, which is `j`
+    # below it and `j + 1` above -- so the four keep their row order for free
+    j = torch.arange(len(DISTRACTOR_NAMES), device=dev).unsqueeze(0)
+    d_slot = j + (j >= slot.unsqueeze(1)).long()                            # (n, 4)
+
+    # --- the row's own rigid pose ----------------------------------------------------
+    yaw = _uniform(n, row_yaw, dev)
+    cx = row_x + _uniform(n, row_xy, dev)
+    cy = _uniform(n, row_xy, dev)
+    cos, sin = torch.cos(yaw), torch.sin(yaw)
+    centre_slot = (N_SLOTS - 1) / 2.0
+
+    def place(name: str, lx: torch.Tensor, ly: torch.Tensor, lyaw: torch.Tensor) -> None:
+        pos = torch.stack([cx + lx * cos - ly * sin,
+                           cy + lx * sin + ly * cos,
+                           torch.full_like(lx, CL_BLOCK_HALF[2])], dim=1)
+        quat = quat_from_euler_xyz(zeros, zeros, yaw + lyaw)
+        asset = env.scene[name]
+        asset.write_root_pose_to_sim_index(
+            root_pose=torch.cat([pos + origins, quat], dim=-1), env_ids=env_ids)
+        asset.write_root_velocity_to_sim_index(
+            root_velocity=torch.zeros(n, 6, device=dev), env_ids=env_ids)
+
+    place("target",
+          _uniform(n, TARGET_JITTER_X, dev),
+          (slot.float() - centre_slot) * pitch,
+          _uniform(n, TARGET_JITTER_YAW, dev))
+    for i, name in enumerate(DISTRACTOR_NAMES):
+        place(name,
+              _uniform(n, DISTRACTOR_JITTER_X, dev),
+              (d_slot[:, i].float() - centre_slot) * pitch + _uniform(n, DISTRACTOR_JITTER_Y, dev),
+              zeros)
+
+    # kept for analysis only -- nothing in the MDP reads them. The policy sees the layout
+    # through `clutter_obs`, which is per-distractor offsets from the target and therefore
+    # already says which slot the target is in and which way the row runs.
+    if not hasattr(env, "_clutter_target_slot"):
+        env._clutter_target_slot = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
+        env._clutter_row_yaw = torch.zeros(env.num_envs, device=dev)
+    env._clutter_target_slot[env_ids] = slot
+    env._clutter_row_yaw[env_ids] = yaw
 
 
 def record_spawn_xy(env: ManagerBasedRLEnv, env_ids: torch.Tensor) -> None:

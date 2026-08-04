@@ -16,6 +16,12 @@ target used to pass ``target_at_goal`` cleanly, and this file asserted the under
 behaviour was correct ("shoved 30 mm but upright: not toppled"). It was correct about
 ``any_distractor_toppled`` and silent about whether toppling was the right constraint.
 
+The V8 block was added on 2026-08-04 with ``mdp.reset_clutter_row``, which spawns the row at
+a random heading and puts the target in a random slot. It checks the three separable claims
+-- the placement is rigid, every slot is drawn, and nothing leaves the arm's envelope -- and
+V1 now measures the pitch along the row's **own** axis, since a world-y projection would
+report ``pitch * cos(yaw)`` and fail a correct row.
+
 Every check appends to ``failures`` instead of asserting, so one run reports everything.
 
 .. code-block:: bash
@@ -50,6 +56,43 @@ from reBot_RL.tasks.manager_based.challenge import mdp
 EXPECTED_DIM = 8 + 8 + 7 + 12 + 7  # 42
 #: 90 deg about x -- lays a block on its side
 LYING = [0.7071, 0.0, 0.0, 0.7071]
+#: kinematic design bound on the row: every block inside r <= 0.32 m (docs C4)
+R_MAX = 0.32
+
+
+#: The two ways to measure the row's heading disagree, and both are needed. **Measured off
+#: the settled blocks either way, never read out of the config or off ``_clutter_row_yaw``.**
+#:
+#: * from the blocks' **orientations** -- exact, because the distractors get no yaw jitter,
+#:   so each one's yaw *is* the row's. This is what catches "the row was translated but not
+#:   rotated", and it is the axis worth projecting onto.
+#: * from the blocks' **centres** -- the dominant principal direction, and only good to
+#:   ~43 mrad: the +/-10 mm fore-aft jitter tilts a 168 mm baseline by
+#:   ``(0.010/sqrt(3)) / 0.133``. That is not a defect to fix, it is a property of the task
+#:   (a policy reading only ``clutter_obs``, which carries no orientations, sees the heading
+#:   through the same noise). It catches the converse: blocks rotated but laid out along a
+#:   line that is not their own axis.
+YAW_FROM_POS_SD = 0.043
+
+
+def row_yaw_measured(e) -> torch.Tensor:
+    """Row heading from the distractors' own orientations. Exact to the settle noise."""
+    y = torch.stack([mdp.yaw_of(mdp.object_quat(e, d)) for d in mdp.DISTRACTOR_NAMES], dim=1)
+    return y.median(dim=1).values
+
+
+def row_yaw_from_centres(p: torch.Tensor) -> torch.Tensor:
+    """Row heading from the five block centres alone. ``p`` is (n, 5, 2)."""
+    q = p - p.mean(dim=1, keepdim=True)
+    u = torch.linalg.eigh(q.transpose(1, 2) @ q)[1][..., -1]   # dominant, sign arbitrary
+    u = u * torch.sign(u[:, 1:2])                              # point along the row's +y
+    return torch.atan2(-u[:, 0], u[:, 1])                      # +y maps to (-sin, cos)
+
+
+def along_row(p: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
+    """Each block's coordinate along the row axis implied by ``yaw``. -> (n, 5)."""
+    u = torch.stack([-torch.sin(yaw), torch.cos(yaw)], dim=1)
+    return ((p - p.mean(dim=1, keepdim=True)) * u.unsqueeze(1)).sum(dim=-1)
 
 
 def main() -> None:
@@ -89,19 +132,92 @@ def main() -> None:
             failures.append(f"clutter_obs shape {tuple(mdp.clutter_obs(e).shape)} != {(n, 12)}")
 
         # ---- V3 / V1: the row settles at the pitch the config claims ----------
+        # Measured along the ROW's own axis, not along world y: since 2026-08-04 the row
+        # spawns at a random heading, so a world-y projection would report the pitch times
+        # cos(yaw) and call a correct row a failing one.
         zero_step(30)
-        ys = torch.stack([mdp.object_pos_local(e, m)[:, 1] for m in names], dim=1)
+        xy = torch.stack([mdp.object_pos_local(e, m)[:, :2] for m in names], dim=1)  # (n,5,2)
         zs = torch.stack([mdp.object_pos_local(e, m)[:, 2] for m in names], dim=1)
-        order = ys[0].argsort()
-        spacing = (ys[0][order][1:] - ys[0][order][:-1])
+        yaw_meas = row_yaw_measured(e)
+        s_sorted = along_row(xy, yaw_meas).sort(dim=1).values
+        spacing = s_sorted[:, 1:] - s_sorted[:, :-1]                                 # (n,4)
         free_gap = spacing - 2 * mdp.CL_BLOCK_HALF[1]
-        print(f"[V1] settled row pitch {[f'{float(s) * 1000:.1f}' for s in spacing]} mm")
-        print(f"[V1] free gap between 30 mm blocks {[f'{float(g) * 1000:.1f}' for g in free_gap]} mm")
+        print(f"[V1] settled row pitch {[f'{float(s) * 1000:.1f}' for s in spacing[0]]} mm (env 0)")
+        print(f"[V1] free gap between 30 mm blocks, over {n} envs: "
+              f"{float(free_gap.min()) * 1000:.1f} - {float(free_gap.max()) * 1000:.1f} mm")
         if float(free_gap.min()) <= 0.0:
             failures.append("blocks overlap in the row -- the pitch is narrower than the blocks")
         if not ((zs > 0.020) & (zs < 0.050)).all():
             failures.append(f"blocks did not settle on the table: z in [{float(zs.min()):.4f}, "
                             f"{float(zs.max()):.4f}]")
+
+        # ---- V8: the row randomisation (2026-08-04) ---------------------------
+        # Three separable claims: the row is placed rigidly at a random heading, the target
+        # can be any of the five blocks, and neither takes a block out of the arm's reach.
+        r = xy.norm(dim=-1)
+        print(f"[V8] block radius from the arm base: {float(r.min()):.3f} - {float(r.max()):.3f} m")
+        if float(r.max()) > R_MAX:
+            failures.append(f"a block spawned at r = {float(r.max()):.3f} m, outside the "
+                            f"r <= {R_MAX} m design envelope (docs C4)")
+
+        # the heading is real, it varies, and the event's own record agrees with the geometry
+        d_yaw = float((yaw_meas - e._clutter_row_yaw).abs().max())
+        d_ctr = float((row_yaw_from_centres(xy) - yaw_meas).abs().max())
+        print(f"[V8] row heading: measured {float(yaw_meas.min()):+.3f} to "
+              f"{float(yaw_meas.max()):+.3f} rad, sd {float(yaw_meas.std()):.3f}; "
+              f"max |measured - recorded| {d_yaw * 1e3:.2f} mrad; "
+              f"max |from centres - from orientations| {d_ctr * 1e3:.1f} mrad")
+        if d_yaw > 0.005:
+            failures.append(f"the blocks' own yaw disagrees with _clutter_row_yaw by "
+                            f"{d_yaw:.3f} rad -- the row is translated but not rotated")
+        # 4 sigma of the centre-fit noise; a genuinely misaligned layout misses by far more
+        if d_ctr > 4 * YAW_FROM_POS_SD:
+            failures.append(f"the row's centres lie along {d_ctr:.3f} rad away from the axis "
+                            "the blocks are turned to -- the layout is not rigid")
+        if float(yaw_meas.std()) < 0.05:
+            failures.append(f"row heading sd {float(yaw_meas.std()):.3f} rad -- the row is not "
+                            "actually being rotated")
+
+        # A rigid transform leaves the pitch alone, so at EVERY heading the spacing must stay
+        # inside the band the per-block jitter alone permits. A hard bound, not a statistical
+        # one: two neighbours can differ by at most +/- 2 x DISTRACTOR_JITTER_Y.
+        band = 2 * mdp.DISTRACTOR_JITTER_Y + 0.001
+        if float(spacing.min()) < mdp.ROW_PITCH - band or float(spacing.max()) > mdp.ROW_PITCH + band:
+            failures.append(f"row spacing spans {float(spacing.min()) * 1000:.1f}-"
+                            f"{float(spacing.max()) * 1000:.1f} mm, outside the "
+                            f"{(mdp.ROW_PITCH - band) * 1000:.0f}-{(mdp.ROW_PITCH + band) * 1000:.0f} mm "
+                            "the jitter alone allows -- the row transform is not rigid")
+
+        # the target's rank along the row IS its slot, and every slot must be reachable
+        slots_seen = set()
+        for _ in range(8):
+            env.reset()
+            zero_step(4)
+            p = torch.stack([mdp.object_pos_local(e, m)[:, :2] for m in names], dim=1)
+            s = along_row(p, row_yaw_measured(e))
+            rank = s.argsort(dim=1).argsort(dim=1)[:, 0]        # `names[0]` is the target
+            if not bool((rank == e._clutter_target_slot).all()):
+                failures.append("the target's position along the row does not match "
+                                "_clutter_target_slot -- the slot assignment is wrong")
+            slots_seen |= {int(v) for v in rank.unique()}
+        print(f"[V8] target slots drawn over {8 * n} spawns: {sorted(slots_seen)}")
+        if len(slots_seen) != mdp.N_SLOTS:
+            failures.append(f"only slots {sorted(slots_seen)} were ever the target, "
+                            f"want all {mdp.N_SLOTS}")
+
+        # and the frozen layout that -Fixed-v0 / -Lenient-v0 pin really is frozen
+        ids = torch.arange(n, device=dev)
+        mdp.reset_clutter_row(e, ids, random_slot=False, row_yaw=0.0, row_xy=0.0)
+        e.sim.forward()
+        e.scene.update(e.physics_dt)
+        yaw_f = row_yaw_measured(e)
+        if float(yaw_f.abs().max()) > 0.005 or not bool((e._clutter_target_slot == 2).all()):
+            failures.append("the FIXED_ROW parameters did not pin the row square with the "
+                            "target in the middle slot")
+        print(f"[V8] FIXED_ROW: heading {float(yaw_f.abs().max()) * 1e3:.2f} mrad, "
+              f"target slot {int(e._clutter_target_slot[0])} in every env")
+        env.reset()
+        zero_step(20)
 
         # ---- V5: the no-topple constraint, negative case first ----------------
         if mdp.any_distractor_toppled(e).any():
@@ -254,9 +370,9 @@ def main() -> None:
         for f in failures:
             print("  - " + f)
     else:
-        print("[result] PASS -- row geometry, the topple AND no-disturbance constraints")
-        print("         (each with a positive and a negative control), the goal predicate")
-        print("         and four negative controls all check out.")
+        print("[result] PASS -- row geometry, the row randomisation, the topple AND")
+        print("         no-disturbance constraints (each with a positive and a negative")
+        print("         control), the goal predicate and four negative controls all check out.")
     print("=" * 70)
 
     env.close()

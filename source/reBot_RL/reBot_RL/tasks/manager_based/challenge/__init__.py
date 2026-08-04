@@ -29,7 +29,9 @@ _TASKS = [
     ("Rebot-ClutterExtract-v0", "clutter_env_cfg", "RebotClutterExtractEnvCfg"),
     ("Rebot-ClutterExtract-Play-v0", "clutter_env_cfg", "RebotClutterExtractEnvCfg_PLAY"),
     ("Rebot-ClutterExtract-Tight-v0", "clutter_env_cfg", "RebotClutterExtractTightEnvCfg"),
-    # the pre-2026-08-03 topple-only rule, for re-running old baselines only
+    # diagnostic controls, not rungs of the task: the pre-2026-08-04 fixed row under the
+    # strict rule, and the whole pre-2026-08-03 task (topple-only AND the fixed row)
+    ("Rebot-ClutterExtract-Fixed-v0", "clutter_env_cfg", "RebotClutterExtractFixedEnvCfg"),
     ("Rebot-ClutterExtract-Lenient-v0", "clutter_env_cfg", "RebotClutterExtractLenientEnvCfg"),
     # articulated object + irreversible ordering
     ("Rebot-DrawerOrder-v0", "drawer_env_cfg", "RebotDrawerOrderEnvCfg"),

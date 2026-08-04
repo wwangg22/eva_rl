@@ -58,11 +58,16 @@ FINGER_STIFFNESS = 2000.0
 FINGER_DAMPING = 40.0
 
 _H = mdp.CL_BLOCK_HALF  # (0.018, 0.015, 0.035)
-#: row centre and pitch. r ~ 0.25 keeps every block inside the measured graspable envelope.
-ROW_X = 0.250
-ROW_PITCH = 0.042  # 12 mm of free gap between 30 mm blocks
+#: row centre and pitch, from `mdp.clutter` -- `reset_clutter_row` owns the layout and
+#: these are only what the scene looks like before the first reset.
+ROW_X = mdp.ROW_X
+ROW_PITCH = mdp.ROW_PITCH
 #: distractor y offsets: two either side of the target at y = 0
 _OFFSETS = (-2 * ROW_PITCH, -ROW_PITCH, ROW_PITCH, 2 * ROW_PITCH)
+#: the row exactly as it spawned before 2026-08-04: square to the robot, at a known
+#: place, target always in the middle slot. Diagnostics and every pre-2026-08-04
+#: baseline need it; the task itself does not use it.
+FIXED_ROW = {"random_slot": False, "row_yaw": 0.0, "row_xy": 0.0}
 
 
 def _block(name: str, y: float, color: tuple[float, float, float], mass: float) -> RigidObjectCfg:
@@ -210,25 +215,13 @@ class TerminationsCfg:
 @configclass
 class EventCfg:
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
-    reset_target = EventTerm(
-        func=mdp.reset_root_state_uniform, mode="reset",
-        params={"pose_range": {"x": (-0.012, 0.012), "yaw": (-0.20, 0.20)},
-                "velocity_range": {}, "asset_cfg": SceneEntityCfg("target")},
-    )
-    # jitter each distractor independently: a uniformly-spaced row is a much easier
-    # problem than one with an uneven, sometimes-tighter gap
-    reset_d0 = EventTerm(func=mdp.reset_root_state_uniform, mode="reset",
-                         params={"pose_range": {"x": (-0.01, 0.01), "y": (-0.005, 0.005)},
-                                 "velocity_range": {}, "asset_cfg": SceneEntityCfg("distractor_0")})
-    reset_d1 = EventTerm(func=mdp.reset_root_state_uniform, mode="reset",
-                         params={"pose_range": {"x": (-0.01, 0.01), "y": (-0.005, 0.005)},
-                                 "velocity_range": {}, "asset_cfg": SceneEntityCfg("distractor_1")})
-    reset_d2 = EventTerm(func=mdp.reset_root_state_uniform, mode="reset",
-                         params={"pose_range": {"x": (-0.01, 0.01), "y": (-0.005, 0.005)},
-                                 "velocity_range": {}, "asset_cfg": SceneEntityCfg("distractor_2")})
-    reset_d3 = EventTerm(func=mdp.reset_root_state_uniform, mode="reset",
-                         params={"pose_range": {"x": (-0.01, 0.01), "y": (-0.005, 0.005)},
-                                 "velocity_range": {}, "asset_cfg": SceneEntityCfg("distractor_3")})
+    # One term lays out all five blocks: it draws the row's heading and centre, draws
+    # WHICH slot holds the target, and jitters each block within the row's own frame. It
+    # cannot be five independent `reset_root_state_uniform` terms -- a rigid row pose has
+    # to be shared, and the target's slot has to be drawn once and read by the other four.
+    # Per-block jitter is still independent, and still matters: a uniformly-spaced row is
+    # a much easier problem than one with an uneven, sometimes-tighter gap.
+    reset_row = EventTerm(func=mdp.reset_clutter_row, mode="reset")
     # must run last: records where the distractors ended up, for the disturbance reward
     record_spawn = EventTerm(func=mdp.record_spawn_xy, mode="reset")
 
@@ -296,8 +289,25 @@ class RebotClutterExtractTightEnvCfg(RebotClutterExtractEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         pitch = 0.036
+        self.events.reset_row.params = {"pitch": pitch}
         for i, s in enumerate((-2, -1, 1, 2)):
             getattr(self.scene, f"distractor_{i}").init_state.pos = [ROW_X, s * pitch, _H[2]]
+
+
+@configclass
+class RebotClutterExtractFixedEnvCfg(RebotClutterExtractEnvCfg):
+    """The strict task on the **pre-2026-08-04 row**: square to the robot, target in the middle.
+
+    A diagnostic control, not a rung of the task. It exists so that the row randomisation is
+    an *ablation* rather than a confound: every pre-2026-08-04 strict number (the scripted
+    expert's 16.4 %) was measured on this layout, and without a variant that reproduces it,
+    "the expert got worse" cannot be separated into "because the row moved" and "because the
+    target changed slots". Nothing should be *developed* against it.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.events.reset_row.params = dict(FIXED_ROW)
 
 
 @configclass
@@ -308,10 +318,17 @@ class RebotClutterExtractLenientEnvCfg(RebotClutterExtractEnvCfg):
     ``eva_bc/clutter/docs/07_``-``13_`` was measured under this predicate, and a baseline
     that cannot be re-run is a baseline that cannot be checked. Nothing new should be
     measured here.
+
+    It also pins the **row layout** to what it was then (``FIXED_ROW``), because "the old
+    task" is the predicate *and* the spawn distribution, and a variant that reproduced only
+    half of it would not re-run anything. That makes it the right env for the disturbance
+    diagnostics too: it is the only one that both leaves the trajectory to run past the
+    2 mm crossing and matches the layout every measured number was taken on.
     """
 
     def __post_init__(self):
         super().__post_init__()
+        self.events.reset_row.params = dict(FIXED_ROW)
         self.terminations.distractor_disturbed = None
         self.rewards.disturb_penalty = None
         self.rewards.success.params = {"tol": float("inf")}

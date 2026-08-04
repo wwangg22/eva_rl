@@ -5,9 +5,40 @@ action is frequently *not* a grasp.
 
 **Source:** `challenge/clutter_env_cfg.py`, `challenge/mdp/clutter.py`
 **Gym IDs:** `Rebot-ClutterExtract-v0` (2048), `-Play-v0` (16), `-Tight-v0` (harder pitch),
-`-Lenient-v0` (the pre-2026-08-03 rule, for re-running old baselines only)
+`-Fixed-v0` and `-Lenient-v0` (diagnostic controls — see below)
 **Video:** `logs/videos/Rebot-ClutterExtract-Play-v0_settle.mp4`
 **Test:** `scripts/test_clutter_env.py` — **passes**, four negative controls
+
+## ⚠ The row was randomised on 2026-08-04
+
+The row used to spawn square to the robot at a known place with the target **always in the
+middle slot**, so a policy could hard-code both the grasp axis and which block to reach for.
+`mdp.reset_clutter_row` now draws:
+
+* a **whole-row heading**, `U(−0.30, +0.30)` rad, and a **±10 mm rigid translation** of the row
+  centre — an *isometry*: gaps, faces and bearings are untouched, so it constrains the **arm**,
+  not the clutter;
+* **which of the five slots holds the target** — uniform, and *not* an isometry: at an end slot
+  the target has one adjacent neighbour instead of two.
+
+Because the second changes difficulty, **report success per slot**; a pooled rate mixes
+configurations of materially different difficulty. The four distractors keep row order
+(`distractor_0` is always the most negative along the row's own axis), so per-block statistics
+stay interpretable.
+
+The scripted expert measured **17.1 %** on the frozen row and **3.0 %** here (768 episodes each),
+with `distractor_disturbed` at 97.0 % and `time_out` at 0.0 % — it still reaches the row, it just
+cannot aim. Full account: `eva_bc/clutter/docs/17_ROW_RANDOMISATION.md`.
+
+Nothing was added to the observation and nothing needed to be: `clutter_obs` is per-distractor
+offsets **relative to the target**, which already encodes the slot and the heading. Note the
+heading is only observable from block *centres* to ~43 mrad (the ±10 mm fore-aft jitter tilts a
+168 mm baseline); the block orientations carry it exactly.
+
+Reachability was gated before shipping, not assumed. Rotating the row swings its ends outward to
+a worst case of **r = 0.3087 m** against the r ≤ 0.32 m envelope (C4). `p41_row_reach.py` solved
+25/27 (slot, heading) cells within the expert's own gates plus a physical contact check, with
+**both worst corners solving** at `pos_err 0.00 mm`, `o_align 1.000`. No reachability wall.
 
 ## ⚠ The success constraint was tightened on 2026-08-03
 
@@ -42,10 +73,19 @@ Extract it and set it down in the green goal zone **without disturbing any neigh
 moving any distractor more than 2 mm, or toppling it, terminates the episode with a −40
 penalty.
 
-| variant | row pitch | free gap between 30 mm blocks |
-|---|---|---|
-| `Rebot-ClutterExtract-v0` | 42 mm | **12 mm** |
-| `Rebot-ClutterExtract-Tight-v0` | 36 mm | **6 mm** |
+| variant | rule | row | free gap |
+|---|---|---|---|
+| `Rebot-ClutterExtract-v0` / `-Play-v0` | strict 2 mm | randomised | **12 mm** |
+| `-Tight-v0` | strict 2 mm | randomised, 36 mm pitch | **6 mm** |
+| `-Fixed-v0` | strict 2 mm | **frozen** (square, centred, target in slot 2) | 12 mm |
+| `-Lenient-v0` | topple-only | **frozen** | 12 mm |
+
+The last two are **diagnostic controls, not rungs of the task.** `-Fixed-v0` is what makes the
+row randomisation an ablation rather than a confound — without it, "the expert got worse" cannot
+be separated into "because the row moved" and "because the target changed slots". `-Lenient-v0`
+pins the layout too, because *the old task* is the predicate **and** the spawn distribution, and
+a variant reproducing only half of it would not re-run anything. Nothing should be developed
+against either.
 
 ## Why this is a different skill
 
@@ -68,15 +108,20 @@ parallel jaw, the same gripper class as this arm. ManiSkill's `PickClutterYCB` s
 
 | entity | geometry | pose |
 |---|---|---|
-| target | cuboid **36 × 30 × 70 mm**, 0.04 kg, blue | `(0.250, 0.0, 0.035)` |
-| distractor 0–3 | same shape, **0.025 kg**, grey | y = ∓84 mm, ∓42 mm from the target |
+| target | cuboid **36 × 30 × 70 mm**, 0.04 kg, blue | one of the five slots, drawn per episode |
+| distractor 0–3 | same shape, **0.025 kg**, grey | the other four, in row order |
 | goal marker | cylinder r = 45 mm, **visual only** | `(0.185, −0.185)` |
+
+The five slots are at 42 mm pitch along the row; the row's centre sits at `r ≈ 0.250` and its
+heading and centre are drawn per episode (see above). The `init_state` poses in the scene config
+are only what the blocks look like *before the first reset* — `reset_clutter_row` owns the
+layout.
 
 The goal marker has no collider on purpose — a collider there would fight the block being
 set down on it.
 
-Row radius r ≈ 0.25 keeps every block inside the measured graspable envelope
-(r ≤ 0.32, docs C4).
+Row radius r ≈ 0.25 keeps every block inside the measured graspable envelope (r ≤ 0.32, docs C4);
+the heading swing takes the worst case to r = 0.3087, verified reachable.
 
 ## MDP
 
@@ -122,10 +167,13 @@ from its spawn). In practice the disturbance term fires first essentially always
 must slide before it can tip — so `distractor_toppled` now reads **0.0 %** on expert rollouts
 that previously reported ~20 % topples.
 
-**Events:** the target and all four distractors are jittered *independently* on reset — a
-uniformly-spaced row is a much easier problem than one with an uneven, sometimes-tighter
-gap. A final `record_spawn` event stores the settled distractor positions, which is what
-`disturbance` measures against; it must run last.
+**Events:** `reset_clutter_row` lays out all five blocks in one term — it draws the row's
+heading and centre, draws which slot holds the target, and jitters each block *independently*
+within the row's own frame (a uniformly-spaced row is a much easier problem than one with an
+uneven, sometimes-tighter gap). It cannot be five per-asset resets: a rigid row pose has to be
+shared and the slot has to be drawn once and read by the other four. A final `record_spawn`
+event stores the settled distractor positions, which is what `disturbance` measures against; it
+must run last.
 
 ## Validation status
 
@@ -135,7 +183,15 @@ gap. A final `record_spawn` event stores the settled distractor positions, which
 |---|---|
 | 42-D observation concatenates, finite; `clutter_obs` is `(N, 12)` | ✓ |
 | row settles on the table, all upright | ✓ |
-| **measured** free gap between adjacent 30 mm blocks after reset jitter | **7.0 – 18.8 mm** |
+| **measured** free gap after reset jitter, **along the row's own axis** | **2.6 – 20.9 mm** |
+| every block inside the r ≤ 0.32 m envelope | 0.237 – 0.293 m |
+| **the row is placed rigidly** — blocks' own yaw vs the recorded heading | **0.00 mrad** |
+| row axis from centres vs from orientations | 82 mrad (≈1.9σ of the 43 mrad fit noise) |
+| the heading actually varies | −0.156 to +0.267 rad, sd 0.147 |
+| spacing stays inside the band the per-block jitter alone allows | ✓ |
+| the target's rank along the row equals the recorded slot | ✓, 128 spawns |
+| **all five slots are drawn** | **[0, 1, 2, 3, 4]** |
+| `FIXED_ROW` pins the heading to 0 and the target to slot 2 | 0.00 mrad, slot 2 |
 | nothing toppled at reset; disturbance 0.00 mm | ✓ |
 | **`TOPPLE_DOT = 0.75` is reachable** — a distractor laid on its side | toppled 16/16 |
 | a distractor shoved 30 mm but left upright | **not** toppled, disturbance 33.9 mm |
@@ -160,7 +216,14 @@ The measured gap range also shows the per-block reset jitter is doing real work:
 range from a comfortable 18.8 mm to a 5.6 mm squeeze, so difficulty varies rather than being
 fixed at the nominal 12 mm.
 
-**Verified since:** a scripted expert extracts the target on **16.4 %** of held-out episodes
-under the 2 mm rule (768 episodes, `eva_bc/clutter`), so the task is achievable but not
-comfortably — the residual failure is that the finger blades sweep the neighbours during the
-close, in 83.6 % of attempts.
+The V8 block was added with the row randomisation, and V1 was rewritten: it used to project the
+row onto **world y**, which under a rotated row reports `pitch · cos(yaw)` and fails a correct
+row. The heading is now measured two ways on purpose — from the blocks' *orientations* it is
+exact and catches "translated but not rotated", from their *centres* it is good to 43 mrad and
+catches "rotated but not laid out along their own axis".
+
+**Verified since:** a scripted expert built for the frozen row extracts the target on **17.1 %**
+of held-out episodes there and **3.0 %** on the randomised row (768 episodes each,
+`eva_bc/clutter`). The residual failure in both is that the finger blades sweep the neighbours
+during the close — 82.9 % and 97.0 % of attempts respectively — not reachability: `time_out` is
+0.0 % in both.
