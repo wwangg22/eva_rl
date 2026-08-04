@@ -14,7 +14,7 @@ It used to be toppling alone, which a neighbour dragged the length of the table 
 upright passed cleanly; a scripted expert scoring 73.3 % under the old rule scores ~16 %
 under this one. ``Rebot-ClutterExtract-Lenient-v0`` reproduces the old behaviour, and exists
 only so the old baselines stay re-runnable. Rationale and the measurement that forced it:
-``eva_bc/clutter/docs/14_FEEDBACK_AND_NEXT.md``.
+``eva_bc/clutter/docs/15_STRICT_METRIC.md``.
 
 The row pitch is 42 mm against a 30 mm block, so the free gap between neighbours is 12 mm.
 The gripper's fingers have to come down that gap, or the policy has to push a neighbour

@@ -28,8 +28,7 @@ carried into the goal zone along with the target** (p90 of the displacement ≈ 
 
 The quantity that catches this was already being computed on every step: `distractors_disturbed`
 was wired to a shaping reward and to nothing else. Full account, including how it went
-unnoticed through ~5 000 scored episodes: `eva_bc/clutter/docs/14_FEEDBACK_AND_NEXT.md` and
-`15_STRICT_METRIC.md`.
+unnoticed through ~5 000 scored episodes: `eva_bc/clutter/docs/15_STRICT_METRIC.md`.
 
 `DISTURB_TOL` is calibrated, not assumed. Under a null action for a full 700-step episode the
 blocks drift by **1 µm** (768 episodes, P35), so the threshold sits **≈2 000×** above the

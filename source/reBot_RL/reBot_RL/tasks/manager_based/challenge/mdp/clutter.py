@@ -23,7 +23,7 @@ the displacement was ~206 mm, against 120-277 mm from the row to the goal).
 
 The quantity needed to catch this was already computed every step: ``distractors_disturbed``
 was wired to a shaping reward and to nothing else. It is now also a constraint, at
-``DISTURB_TOL``. See ``eva_bc/clutter/docs/14_FEEDBACK_AND_NEXT.md``.
+``DISTURB_TOL``. See ``eva_bc/clutter/docs/15_STRICT_METRIC.md``.
 """
 
 from __future__ import annotations
