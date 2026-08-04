@@ -311,11 +311,19 @@ placed to be side-graspable per C3/C4.
 ### D. `Rebot-ClutterExtract-v0` — constrained retrieval from clutter
 
 **Skill.** Collision-aware approach and gentle contact. The target sits in a tight row of
-distractors spaced below the gripper's outer width; toppling any distractor terminates the
-episode. The policy must either thread the gripper in precisely or singulate the target by
-pushing neighbours apart first.
+distractors spaced below the gripper's outer width; **moving** any distractor more than 2 mm,
+or toppling it, terminates the episode. The policy must thread the gripper in precisely — the
+"singulate by pushing neighbours apart first" route is available only if the pushed neighbour
+ends within 2 mm of where it started, which in practice it does not.
 
 **Scene.** Target plus four distractors in a row at object height, spacing a config axis.
+
+⚠ **Constraint tightened 2026-08-03.** It was toppling alone (`up_z < 0.75`, ≈41° of tilt),
+which a neighbour dragged across the table and set down upright passed cleanly. A scripted
+expert measured at **73.3 %** under the old rule scores **16.4 %** under the new one; the
+median old-rule "success" displaced a neighbour by 13.7 mm, and 22–25 % of episodes carried a
+neighbour into the goal zone with the target. `Rebot-ClutterExtract-Lenient-v0` reproduces the
+old behaviour so the old baselines stay re-runnable. See `docs/envs/clutter-extract.md`.
 
 ---
 

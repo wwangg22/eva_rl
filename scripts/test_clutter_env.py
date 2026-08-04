@@ -7,8 +7,14 @@
 
 Checks the row geometry is the pitch the config claims (measured off the settled blocks, not
 read back out of the config), that everything starts upright and undisturbed, and that the
-no-topple constraint -- the thing that makes this a clutter task rather than a pick task --
-actually fires, and fires only when it should.
+no-topple and no-disturbance constraints -- the things that make this a clutter task rather
+than a pick task -- actually fire, and fire only when they should.
+
+The V7 block and negative control (d) were added on 2026-08-03 with ``mdp.DISTURB_TOL``.
+Control (d) is the one that matters: an upright neighbour dragged into the goal zone with the
+target used to pass ``target_at_goal`` cleanly, and this file asserted the underlying
+behaviour was correct ("shoved 30 mm but upright: not toppled"). It was correct about
+``any_distractor_toppled`` and silent about whether toppling was the right constraint.
 
 Every check appends to ``failures`` instead of asserting, so one run reports everything.
 
@@ -128,6 +134,49 @@ def main() -> None:
 
         env.reset()
         zero_step(20)
+        # re-read the distractor's pose: the reset re-jittered it, and `record_spawn`
+        # re-recorded the spawn against the NEW pose. Putting it back at the pre-reset `p0`
+        # would read as several mm of displacement, which since 2026-08-03 is itself a
+        # failure of `target_at_goal` -- negative control (c) below would then pass for the
+        # wrong reason and stop testing the topple constraint it is named for.
+        #
+        # Kept PER ENV, unlike the pre-reset `p0` above: `put` broadcasts a 1-D position to
+        # every env, so restoring all 16 to env 0's pose is itself a multi-millimetre
+        # displacement now that displacement is a constraint.
+        p0 = mdp.object_pos_local(e, d0).clone()
+
+        # ---- V7: the no-DISTURBANCE constraint, both directions ---------------
+        # Added with `DISTURB_TOL`. Three controls, because a threshold needs to be shown
+        # both to fire and not to fire: at rest it must be silent, below tol it must stay
+        # silent, and above tol it must bind success.
+        if mdp.any_distractor_disturbed(e).any():
+            failures.append("any_distractor_disturbed fired on an undisturbed row at reset")
+        print(f"[V7-] at reset: max displacement "
+              f"{float(mdp.max_distractor_displacement(e).max()) * 1000:.3f} mm, not disturbed")
+
+        def shift_d0(dy):
+            off = torch.zeros_like(p0)
+            off[:, 1] = dy
+            put(d0, p0 + off)
+
+        half_tol = mdp.DISTURB_TOL / 2.0
+        shift_d0(half_tol)
+        if mdp.any_distractor_disturbed(e).any():
+            failures.append(f"any_distractor_disturbed fired for a {half_tol * 1000:.1f} mm nudge, "
+                            f"below DISTURB_TOL = {mdp.DISTURB_TOL * 1000:.1f} mm")
+        print(f"[V7-] nudged {half_tol * 1000:.1f} mm (below tol): correctly not disturbed")
+
+        shift_d0(2 * mdp.DISTURB_TOL)
+        if not mdp.any_distractor_disturbed(e).all():
+            failures.append(f"any_distractor_disturbed did not fire for a "
+                            f"{2 * mdp.DISTURB_TOL * 1000:.1f} mm shove")
+        if mdp.any_distractor_toppled(e).any():
+            failures.append("a shoved-but-upright distractor read as toppled -- the two "
+                            "constraints are not independent")
+        print(f"[V7+] shoved {2 * mdp.DISTURB_TOL * 1000:.1f} mm, still upright: disturbed "
+              f"{int(mdp.any_distractor_disturbed(e).sum())}/{n}, toppled "
+              f"{int(mdp.any_distractor_toppled(e).sum())}/{n}")
+        put(d0, p0)
 
         # ---- V5: extraction and goal predicates -------------------------------
         tp = mdp.object_pos_local(e, "target")[0].clone()
@@ -153,14 +202,31 @@ def main() -> None:
 
         # (c) perfectly at the goal, but a distractor is down -- the constraint must dominate
         put("target", torch.tensor([gx, gy, 0.035], device=dev))
-        put(d0, torch.tensor([float(p0[0]), float(p0[1]), 0.018], device=dev),
-            torch.tensor(LYING, device=dev).repeat(n, 1))
+        lay = p0.clone()
+        lay[:, 2] = 0.018   # per env: `p0` is (n, 3) since the V7 block above
+        put(d0, lay, torch.tensor(LYING, device=dev).repeat(n, 1))
         if mdp.target_at_goal(e).any():
             failures.append("negative control (c): target_at_goal fired while a distractor was "
                             "toppled -- the no-topple constraint does not bind the success test")
         if mdp.target_extracted(e).any():
             failures.append("negative control (c): target_extracted ignores a toppled distractor")
         print("[V5-] target at the goal but a distractor down: correctly not a success")
+
+        # (d) perfectly at the goal, distractor UPRIGHT but dragged to the goal with it.
+        # This is the case the task was silently scoring as a full success until
+        # 2026-08-03: it was worth 42 points of the measured expert's rate.
+        put(d0, torch.tensor([gx, gy + 0.06, 0.035], device=dev))
+        if mdp.any_distractor_toppled(e).any():
+            failures.append("control (d) is not testing what it claims: the dragged distractor "
+                            "toppled, so the topple constraint would have caught it anyway")
+        if mdp.target_at_goal(e).any():
+            failures.append("negative control (d): target_at_goal fired while an UPRIGHT "
+                            "distractor had been dragged to the goal zone -- the "
+                            "no-disturbance constraint does not bind the success test")
+        print(f"[V5-] target at the goal but an upright distractor dragged "
+              f"{float(mdp.max_distractor_displacement(e).max()) * 1000:.0f} mm with it: "
+              "correctly not a success")
+        put(d0, p0)
 
         # ---- V6: rewards are finite -------------------------------------------
         for fn, kw in ((mdp.reach_target, {"std": 0.10, "ee_frame_cfg": SceneEntityCfg("ee_frame")}),
@@ -188,8 +254,9 @@ def main() -> None:
         for f in failures:
             print("  - " + f)
     else:
-        print("[result] PASS -- row geometry, the topple constraint (positive and negative),")
-        print("         the goal predicate and three negative controls all check out.")
+        print("[result] PASS -- row geometry, the topple AND no-disturbance constraints")
+        print("         (each with a positive and a negative control), the goal predicate")
+        print("         and four negative controls all check out.")
     print("=" * 70)
 
     env.close()

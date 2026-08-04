@@ -8,7 +8,7 @@ constraints that forced the design, how to run it, and its validation evidence.
 |---|---|---|---|
 | [precision-slot.md](precision-slot.md) | `Rebot-PrecisionSlot-{Loose-,,Tight-}v0`, `-Play-v0` | tight-tolerance horizontal insertion | smoke test passes (4 negative controls); **insertion probe needs re-running** after the TCP correction |
 | [pregrasp.md](pregrasp.md) | `Rebot-PreGrasp-v0`, `-Play-v0` | non-prehensile reconfiguration before grasping | smoke test passes (3 negative controls); **⚠ premise disproven — needs redesign** |
-| [clutter-extract.md](clutter-extract.md) | `Rebot-ClutterExtract-v0`, `-Play-v0`, `-Tight-v0` | constrained retrieval without disturbing neighbours | smoke test passes (3 negative controls); topple threshold proven reachable |
+| [clutter-extract.md](clutter-extract.md) | `Rebot-ClutterExtract-v0`, `-Play-v0`, `-Tight-v0`, `-Lenient-v0` | constrained retrieval without disturbing neighbours | smoke test passes (4 negative controls); both constraints proven reachable; **scripted expert 16.4 %** under the 2 mm rule |
 | [drawer-order.md](drawer-order.md) | `Rebot-DrawerOrder-v0`, `-Play-v0` | articulated joint + irreversible ordering | smoke test passes (4 negative controls); joint travel under a scripted pull still unverified |
 
 Design rationale and the measured hardware envelope every task respects:

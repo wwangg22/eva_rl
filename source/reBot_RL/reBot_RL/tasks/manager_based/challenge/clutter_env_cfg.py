@@ -6,7 +6,15 @@
 """Clutter extraction for the reBot arm.
 
 A target block sits in the middle of a tight row of four distractors. Extract it and set it
-down in the goal zone **without toppling any neighbour** -- toppling ends the episode.
+down in the goal zone **without moving any neighbour** -- displacing one by more than
+``mdp.DISTURB_TOL`` (2 mm), or toppling it, ends the episode.
+
+⚠ **The constraint was tightened on 2026-08-03 and this changes every published number.**
+It used to be toppling alone, which a neighbour dragged the length of the table and set down
+upright passed cleanly; a scripted expert scoring 73.3 % under the old rule scores ~16 %
+under this one. ``Rebot-ClutterExtract-Lenient-v0`` reproduces the old behaviour, and exists
+only so the old baselines stay re-runnable. Rationale and the measurement that forced it:
+``eva_bc/clutter/docs/14_FEEDBACK_AND_NEXT.md``.
 
 The row pitch is 42 mm against a 30 mm block, so the free gap between neighbours is 12 mm.
 The gripper's fingers have to come down that gap, or the policy has to push a neighbour
@@ -168,10 +176,18 @@ class RewardsCfg:
     carrying = RewTerm(func=mdp.target_to_goal, weight=12.0, params={"std": 0.12})
     success = RewTerm(func=mdp.clutter_success, weight=60.0)
 
-    # gentle, not frozen: nudging a neighbour aside is allowed, toppling it is not
+    # the dense half of the no-disturbance constraint: pays continuously so there is a
+    # gradient to follow long before the 2 mm cliff
     disturbance = RewTerm(func=mdp.distractors_disturbed, weight=-3.0)
     topple_penalty = RewTerm(
         func=mdp.is_terminated_term, weight=-40.0, params={"term_keys": "distractor_toppled"}
+    )
+    # Mirrors `topple_penalty`, and it is not optional. `distractor_disturbed` ends the
+    # episode, and ending an episode early is worth a large *positive* amount to an agent
+    # that is accumulating negative shaping terms -- without this, adding the termination
+    # would have made shoving a neighbour the profitable move.
+    disturb_penalty = RewTerm(
+        func=mdp.is_terminated_term, weight=-40.0, params={"term_keys": "distractor_disturbed"}
     )
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-2e-2)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-5e-3, params={"asset_cfg": SceneEntityCfg("robot")})
@@ -183,6 +199,12 @@ class TerminationsCfg:
     target_dropped = DoneTerm(func=mdp.block_dropped, params={"minimum_height": -0.05, "name": "target"})
     #: the constraint that makes this a clutter task rather than a pick task
     distractor_toppled = DoneTerm(func=mdp.any_distractor_toppled)
+    #: ...and the one that makes it a *careful* clutter task. Added 2026-08-03: toppling
+    #: alone let a neighbour be dragged 200 mm to the goal and still scored it a success.
+    #: Fires first in almost every case, since a block must slide before it can tip.
+    distractor_disturbed = DoneTerm(
+        func=mdp.any_distractor_disturbed, params={"tol": mdp.DISTURB_TOL}
+    )
 
 
 @configclass
@@ -276,3 +298,20 @@ class RebotClutterExtractTightEnvCfg(RebotClutterExtractEnvCfg):
         pitch = 0.036
         for i, s in enumerate((-2, -1, 1, 2)):
             getattr(self.scene, f"distractor_{i}").init_state.pos = [ROW_X, s * pitch, _H[2]]
+
+
+@configclass
+class RebotClutterExtractLenientEnvCfg(RebotClutterExtractEnvCfg):
+    """The task exactly as it stood before 2026-08-03: topple-only, no displacement limit.
+
+    Kept as a named variant rather than deleted, for one reason: every success number in
+    ``eva_bc/clutter/docs/07_``-``13_`` was measured under this predicate, and a baseline
+    that cannot be re-run is a baseline that cannot be checked. Nothing new should be
+    measured here.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.terminations.distractor_disturbed = None
+        self.rewards.disturb_penalty = None
+        self.rewards.success.params = {"tol": float("inf")}
