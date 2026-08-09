@@ -362,6 +362,13 @@ spend far less time parked in the air holding a cube. Both halves of the earlier
 downstream of choosing a marginal candidate when a better one had already been measured and
 thrown away.
 
+**The shipped defaults were then re-verified as defaults.** `SCREEN_ROUNDS` used to default to
+0 — no screen at all — while every quoted number was measured with one, which is the same class
+of trap as a gate that measures what the pipeline already believes. `GOALSET`, `RETRIES`,
+`SCREEN_ROUNDS`, `SCREEN_DESCEND`, `GRASP_SETTLE` and `BIAS_MAX` now default to the verified
+configuration, and seed 13 was re-run with **no environment variables at all**: 96.1 %,
+123/128, taxonomy identical to the run that set the number.
+
 The screen reports its own distribution now: **best-candidate rise median 82 mm, p10 62 mm**
 against a 30 mm pass threshold — i.e. the boolean was discarding a signal that spans a factor
 of three across candidates that all "passed".
