@@ -263,23 +263,6 @@ manoeuvre.
 *Lesson: "the demonstrations contain a lot of holding" and "the video looks slow" were the
 same defect seen from two ends, and the visible one is what surfaced it.*
 
-## 5d. The expert videos
-
-`eva_bc/re3sim/runs/video_hq/` (gitignored — 160 MB):
-
-| file | view |
-|---|---|
-| `expert_sidebyside.mp4` | both, labelled — **start here** |
-| `expert_station.mp4` | workstation cam, in front of the arm |
-| `expert_wrist.mp4` | wrist cam (D405 mount) |
-
-960×540, 50 fps, quality 10, **every** step recorded, 608 frames / 12.2 s, env 0 = SUCCESS.
-Filmed at 32 envs (batch scored 90.6 %) — **not** the 128-env configuration, because filming
-is pixel-bound (§4.10). Quote the 128-env number for the expert, not this one.
-
-Reproduce: see §3. The two views come from two runs at one seed and composite frame-for-frame
-because runs are deterministic in the seed.
-
 ## 5c. Randomised arm start positions — implemented, sweep in flight
 
 Every episode this env has ever produced began at exactly one arm pose, and the expert's
@@ -315,6 +298,23 @@ jitter. Expect degradation with jitter for two reasons worth separating in the t
 limit), while `never-got-there` rising means it was solved and not followed (a control limit).
 A jittered start can also spawn the gripper intersecting an object, since `reset_objects` keeps
 clear of the box but not of the arm.
+
+## 5d. The expert videos
+
+`eva_bc/re3sim/runs/video_hq/` (gitignored — 160 MB):
+
+| file | view |
+|---|---|
+| `expert_sidebyside.mp4` | both, labelled — **start here** |
+| `expert_station.mp4` | workstation cam, in front of the arm |
+| `expert_wrist.mp4` | wrist cam (D405 mount) |
+
+960×540, 50 fps, quality 10, **every** step recorded, 608 frames / 12.2 s, env 0 = SUCCESS.
+Filmed at 32 envs (batch scored 90.6 %) — **not** the 128-env configuration, because filming
+is pixel-bound (§4.10). Quote the 128-env number for the expert, not this one.
+
+Reproduce: see §3. The two views come from two runs at one seed and composite frame-for-frame
+because runs are deterministic in the seed.
 
 ## 6. Plan from here — *subject to change*
 
@@ -368,6 +368,6 @@ clear of the box but not of the arm.
 * Do **not** trust a screen, gate or renderer that cannot reach the configuration you are
   worried about. Three separate bugs this session were invisible for exactly that reason.
 * Do **not** assume a render outside a simulation step produces a frame. It does not, and
-  three warm-up attempts failed on that assumption before a stepped pre-roll fixed it (§7).
+  three warm-up attempts failed on that assumption before a stepped pre-roll fixed it (§4.9).
 * Do **not** read "the arm is holding still" as "the expert is being careful" without checking
   `pad()` first — 412 consecutive steps of it were batch padding (§5b).
