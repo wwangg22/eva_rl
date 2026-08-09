@@ -1,0 +1,44 @@
+{
+  "object": "tapemeasure",
+  "attempts": [
+    {
+      "seed_frac": 0.45,
+      "plane_mult": 3.0,
+      "expand": 1.35,
+      "extent_mm": [
+        69.54,
+        70.29,
+        34.09
+      ],
+      "target_mm": [
+        71.5,
+        null,
+        36.0
+      ],
+      "rel_err": 0.05294511700049036
+    }
+  ],
+  "best": {
+    "seed_frac": 0.45,
+    "plane_mult": 3.0,
+    "expand": 1.35,
+    "extent_mm": [
+      69.54,
+      70.29,
+      34.09
+    ],
+    "target_mm": [
+      71.5,
+      null,
+      36.0
+    ],
+    "rel_err": 0.05294511700049036,
+    "ext": [
+      0.06953559815883636,
+      0.07029381394386292,
+      0.034093975787982345
+    ]
+  },
+  "usd": "/home/eva/Desktop/isaacLab/eva_rl/source/reBot_RL/data/workstation/objects/tapemeasure.usda",
+  "gate": "PASS"
+}

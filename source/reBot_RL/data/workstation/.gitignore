@@ -1,0 +1,8 @@
+# The gaussian desk is a 356k-splat NuRec field produced by the Re3Sim reconstruction
+# pipeline. It is a build artefact of a *different repo*, and what sits here is an absolute
+# symlink into it -- committing that gives everyone else a dangling link. See README.md.
+splats.usd
+splats_splats.usd
+
+# Superseded photogrammetry assets, kept on disk for A/B against the authored cube only.
+objects_object2_backup/
