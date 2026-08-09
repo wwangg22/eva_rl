@@ -99,6 +99,28 @@ python -u re3sim/expert/collect_demos.py --headless --num_envs 128 --batches 1 -
   --out /tmp/verify.hdf5
 ```
 
+Film the expert (wrist + workstation), one view per run:
+
+```
+cd /home/eva/Desktop/isaacLab/eva_bc
+for CAM in station wrist; do
+  python -u re3sim/expert/collect_demos.py --headless --num_envs 32 --batches 1 --seed 777 \
+    --out /tmp/vid_$CAM.hdf5 --record-video re3sim/runs/video_hq --record-cams $CAM \
+    --record-width 960 --record-height 540 --record-stride 1 --record-fps 50 --record-quality 10
+done
+```
+
+⚠ **Filming is memory-bound, and the constraint is total render-product PIXELS.** `Camera`
+requires one prim per env (it raises if `_view.count != num_envs`), so N envs always means N
+cameras per view, and the RTX path tiles them into ONE atlas — a 32-env × 2-cam × 720p run
+tries to allocate a single 7680×4320 texture and dies. `--record-cams` films one view per run
+so the run can keep enough envs to plan with: at 16 envs the goalset planner solves only 8/16.
+Runs are deterministic in the seed, so two single-view runs at the same seed are frame-aligned
+and can be composited.
+
+Measured ceilings on the 10 GB card: **32 envs × 1 cam × 960×540 works; 32 × 1 × 1280×720
+OOMs; 16 × 2 × 1280×720 fits at 8.97 GB but starves the planner.**
+
 Render the env (and check the splats are aligned at >1 env):
 
 ```
