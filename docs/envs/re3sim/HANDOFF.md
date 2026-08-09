@@ -60,7 +60,12 @@ eva_bc/expert/run_expert_v1.py               the "og" cuRobo expert this was por
 | | **mean 95.3 %, min 93.0 %** | | | | |
 
 Never under `--teleport-pregrasp`. Runs are **deterministic in the seed** — seed 11 was re-run
-after an unrelated fix and reproduced to the episode.
+after an unrelated fix and reproduced to the episode, and seed 13 reproduced again as the
+control of the arm-start sweep.
+
+Robustness to the initial arm pose, measured separately (§5c, 128 envs, seed 13):
+**96.1 % at the default start, 90.6 % at ±0.15 rad per joint, 75.0 % at ±0.30 rad.** Jitter is
+**off by default**, so the table above is the shipped env.
 
 How it got there, from 71.9 % at the start of the session:
 
@@ -263,7 +268,7 @@ manoeuvre.
 *Lesson: "the demonstrations contain a lot of holding" and "the video looks slow" were the
 same defect seen from two ends, and the visible one is what surfaced it.*
 
-## 5c. Randomised arm start positions — implemented, sweep in flight
+## 5c. Randomised arm start positions — implemented and swept
 
 Every episode this env has ever produced began at exactly one arm pose, and the expert's
 transit is solved *from* that pose, so neither the policy nor the expert had ever been asked
@@ -280,8 +285,45 @@ whether they depend on it.
   restores the arm to *that*, not to the shared default — otherwise the restore would silently
   undo the randomisation the plans were just solved against.
 
-⚠ **The sweep (`jitter = 0.0 / 0.15 / 0.30 rad`, 128 envs, seed 13) was still running at
-compaction.** Results land in `/tmp/.../scratchpad/jit_*.hdf5` and the log; re-run with:
+**Sweep result — 128 envs, seed 13, one batch each (~25 min per row):**
+
+| jitter | success | planned | grasped | plan-failed | never-got-there |
+|---|---|---|---|---|---|
+| **0.0** (control) | **123/128 = 96.1 %** | 128/128 | 124/128 | 0 | 5 |
+| **0.15 rad** | **116/128 = 90.6 %** | 127/128 | 117/128 | 0 | 12 |
+| **0.30 rad** | **96/128 = 75.0 %** | 120/128 | 97/128 | 7 | 25 |
+
+**The control reproduced 96.1 % / 123 of 128 exactly**, so neither `q_home = q_start` nor the
+padding mask regressed anything.
+
+Reading the degradation, which is the point of the sweep:
+
+* **It is not the planner.** At 0.15 rad the transit still solves for 127 of 128 envs and
+  `plan-failed` is **0**. Even at 0.30 rad only 8 envs fail to plan. The CEM copes fine with
+  being started somewhere else.
+* **It is the grasp.** On attempt 0, `closed-on-air` goes 2 → 6 → 15 and `gripped-but-lost`
+  goes 3 → 5 → 16. The screen says the same thing earlier and louder: the best-of-N candidate's
+  lift height at p10 collapses from **62 mm to 0 mm** the moment jitter is on — i.e. for at
+  least a tenth of envs, *none* of the sampled grasps lifts the cube at all, where at the
+  default start nearly all of them did. Envs with a lifting candidate after three re-draws:
+  127 → 120 → 113.
+* ⭐ **The retry loop stops working entirely.** It recovered +1 env at control and **+0 at both
+  0.15 and 0.30** (0/3, 0/1 and 0/2, 0/10 placed). Retries are worth nothing once the start
+  moves — which also means the 3-attempt budget is buying nothing but wall time in this regime.
+
+The likely mechanism — **stated as a hypothesis, not measured**: the grasp poses are defined in
+task space, but a different start puts the wrist on a different IK branch, so the arm arrives at
+the same TCP pose in a different configuration and the fingers close from a different roll. That
+would explain both the grasp-quality collapse and the dead retries, since every retry re-solves
+from the *same* jittered start and reproduces the same branch rather than sampling a new one.
+Confirm by logging the arm configuration at the grasp waypoint across jitter levels before
+fixing anything.
+
+Practical upshot: **0.15 rad is usable for demo collection** (90.6 %, still above the 90 % bar);
+0.30 rad is not. If start diversity is wanted for BC, take 0.15 and spend the effort on grasp
+robustness rather than on more retries.
+
+Re-run with:
 
 ```
 cd /home/eva/Desktop/isaacLab/eva_bc
@@ -291,13 +333,8 @@ for J in 0.0 0.15 0.30; do
 done
 ```
 
-**`jitter=0.0` is the control and must reproduce 96.1 % / 123 of 128 on seed 13.** If it does
-not, the regression is in the `q_home = q_start` change or the padding mask, not in the
-jitter. Expect degradation with jitter for two reasons worth separating in the taxonomy:
-`plan-failed` rising means the transit could not be solved from the new start (a planner
-limit), while `never-got-there` rising means it was solved and not followed (a control limit).
 A jittered start can also spawn the gripper intersecting an object, since `reset_objects` keeps
-clear of the box but not of the arm.
+clear of the box but not of the arm. That was not observed in this sweep, but it is not excluded.
 
 ## 5d. The expert videos
 
@@ -318,9 +355,7 @@ because runs are deterministic in the seed.
 
 ## 6. Plan from here — *subject to change*
 
-1. **Finish the arm-start sweep** (§5c) — it was running at compaction. Check the control
-   first.
-2. **Regenerate demos and retrain BC.** Every BC number on record (7.8 / 20.1 / 19.5 % for
+1. **Regenerate demos and retrain BC.** Every BC number on record (7.8 / 20.1 / 19.5 % for
    1024 / 2048 / 4096 episodes) came from an expert that closed its gripper while the arm was
    still moving, ran against a cube whose yaw did not match its plan, **and was trained on
    demonstrations in which ~40 % of the steps were the arm holding still for the batch's
@@ -329,9 +364,15 @@ because runs are deterministic in the seed.
    * `train_mask` is now **per step**, and demos carry an `attempts` attribute. Decide
      deliberately whether recovery episodes (`attempts > 0`) belong in the training set — they
      are a genuinely harder, multimodal behaviour to imitate.
-   * Consider collecting with a **non-zero start jitter** once §5c says what it costs: a
-     policy whose training set contains exactly one initial arm pose has no reason to be robust
-     to any other, and that is the first thing real hardware will violate.
+   * Collect with **`RE3SIM_ARM_START_JITTER=0.15`**. §5c measured the cost — 96.1 % → 90.6 %,
+     still above the bar — and a policy whose training set contains exactly one initial arm
+     pose has no reason to be robust to any other, which is the first thing real hardware will
+     violate. Do **not** use 0.30 (75.0 %).
+2. **Grasp robustness under a moved start**, if 0.15 rad is not enough diversity. §5c localised
+   the failure: not the planner, the grasp. Confirm the IK-branch hypothesis first (log the arm
+   configuration at the grasp waypoint across jitter levels) — and note that the retry loop
+   recovers **zero** envs once jitter is on, so `RETRIES` is currently buying wall time and
+   nothing else in that regime.
 3. **DAgger**, better targeted now. Its ceiling is the expert's own rate.
 4. **Vision distillation.** Now unblocked on both of its old blockers: the multi-env splat bug
    (§4.4) and the washed-out object colour (the cube is authored with real materials). Note the
