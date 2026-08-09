@@ -263,6 +263,23 @@ manoeuvre.
 *Lesson: "the demonstrations contain a lot of holding" and "the video looks slow" were the
 same defect seen from two ends, and the visible one is what surfaced it.*
 
+## 5d. The expert videos
+
+`eva_bc/re3sim/runs/video_hq/` (gitignored — 160 MB):
+
+| file | view |
+|---|---|
+| `expert_sidebyside.mp4` | both, labelled — **start here** |
+| `expert_station.mp4` | workstation cam, in front of the arm |
+| `expert_wrist.mp4` | wrist cam (D405 mount) |
+
+960×540, 50 fps, quality 10, **every** step recorded, 608 frames / 12.2 s, env 0 = SUCCESS.
+Filmed at 32 envs (batch scored 90.6 %) — **not** the 128-env configuration, because filming
+is pixel-bound (§4.10). Quote the 128-env number for the expert, not this one.
+
+Reproduce: see §3. The two views come from two runs at one seed and composite frame-for-frame
+because runs are deterministic in the seed.
+
 ## 5c. Randomised arm start positions — implemented, sweep in flight
 
 Every episode this env has ever produced began at exactly one arm pose, and the expert's
