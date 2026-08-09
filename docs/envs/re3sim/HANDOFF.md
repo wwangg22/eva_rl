@@ -152,6 +152,10 @@ every quoted number was measured with one; that trap is closed.
 | `RE3SIM_CUBE_PATTERN_DR` | 1 | per-env pattern randomisation |
 | `RE3SIM_SCANNED_CLUTTER` | 0 | restore the photogrammetry clutter |
 | `RE3SIM_SPLATS` | — | point at a different gaussian field |
+| `RE3SIM_ARM_START_JITTER` | 0.0 | per-joint uniform jitter [rad] on the arm's start pose |
+| `--record-cams` | both | film one view per run; halves the render-product pixels |
+| `--record-keep-pad` | off | film env 0 even while it is only being held for the batch |
+| `--record-warmup` | 180 | discarded pre-roll steps before the first kept frame |
 
 `GOALSET=1 RETRIES=0 SCREEN_ROUNDS=0 BIAS_MAX=0.25` reproduces the pre-2026-08-09 executor.
 
@@ -175,7 +179,20 @@ every quoted number was measured with one; that trap is closed.
 6. **`startup`-mode events get `env_ids=None`**, not a tensor.
 7. **`cfg.prim_path` is already resolved** — `/World/envs/env_.*/Cube`, not `{ENV_REGEX_NS}/…`.
 8. **Isaac Sim's first import takes minutes.** Slow startup is not a hang.
-9. Long jobs: Bash `run_in_background: true`, `python -u`, always.
+9. **A render outside a simulation step produces no frame.** `sim.render()` in a loop --
+   with or without an annotator read, with or without a preceding `sim.forward()` -- does not
+   warm the renderer up. Three attempts failed on that assumption. What works is *stepping*:
+   `render_workstation.py` steps 60 times before rendering, and `collect_demos.py` now
+   pre-rolls real env steps and discards the frames. Symptom when it is missing: the first
+   frame is at the camera's spawn pose and the 356k-gaussian desk is absent for ~120 frames,
+   so the arm and the cube float on a bare grid floor while everything else looks correct.
+10. **Filming is bounded by total render-product PIXELS, not resolution.** `Camera` raises if
+   `_view.count != num_envs`, so N envs is always N cameras per view, and RTX tiles them into
+   ONE atlas -- 32 envs x 2 cams x 720p asks for a single 7680x4320 texture and dies. Measured:
+   32x1x960x540 works, 32x1x1280x720 OOMs, 16x2x1280x720 fits at 8.97 GB but starves the
+   planner (8/16 envs solved). Film one view per run with `--record-cams`; runs are
+   deterministic in the seed, so two single-view runs composite frame-for-frame.
+11. Long jobs: Bash `run_in_background: true`, `python -u`, always.
 
 ---
 
@@ -200,21 +217,110 @@ primitives. They are left uncommitted for a separate, deliberate decision.
 
 ---
 
+## 5b. ⭐ The expert "pauses a lot" — measured, and one of the causes was a BC data bug
+
+Asked why the filmed expert pauses so much. Measured on the recorded episode (env 0, 1018
+steps) rather than guessed:
+
+```
+phase       steps  % of ep   still  still %
+approach      668    65.6%     393    58.8%
+close          70     6.9%       0     0.0%
+lift           50     4.9%       0     0.0%
+carry         140    13.8%       0     0.0%
+release        30     2.9%      17    56.7%
+retreat        60     5.9%       9    15.0%
+
+TOTAL STILL (max |joint vel| < 0.02):            419/1018 = 41.2 % of the episode
+steps where the COMMAND did not change at all:   721/1017 = 70.9 %
+longest unchanged-command runs (steps): [412, 112, 72, 42, 12, 7, ...]
+```
+
+There are **two different causes** and they want opposite treatment:
+
+**(a) Deliberate settles — keep them.** `stay(TRANSIT_SETTLE=40)` before the descent,
+`stay(GRASP_SETTLE=40)` before the close, `stay(70)` for the close itself, `stay(30)` to
+release, `stay(40)` to let the cube settle before judging. These are load-bearing: adding
+`GRASP_SETTLE` alone took the expert 40.6 % → 54.7 %, because a position drive that is still
+travelling when the fingers shut closes on a pose the arm has not reached. ~220 steps total.
+
+**(b) ⭐ Batch padding — a bug, and not only a cosmetic one.** The single longest run of an
+unchanged command is **412 steps — 8.2 s of a 20.4 s video**. That is env 0 finishing its
+transit early and then being held while the slowest of 32 envs catches up, because `pad()`
+extends every segment to the batch maximum by repeating its last waypoint.
+
+Those steps were being **recorded as demonstrations**. A policy trained on them sees, at a
+state where the correct action is "descend", a large number of samples that say "freeze" —
+contradictory supervision at the same state, and a plausible contributor to the BC plateau at
+~20 %. `pad()` now also returns `own[t, i]` ("is env i still on its own waypoints"), and those
+steps are masked out of `train_mask` exactly as the retry-idle steps already were. The
+deliberate settles stay unmasked, because the policy *should* reproduce them.
+
+For filming, `grab()` now skips frames where env 0 is only being held (`--record-keep-pad`
+restores them). The video went **1018 → 608 frames**, i.e. 20.4 s → 12.2 s, with the same
+manoeuvre.
+
+*Lesson: "the demonstrations contain a lot of holding" and "the video looks slow" were the
+same defect seen from two ends, and the visible one is what surfaced it.*
+
+## 5c. Randomised arm start positions — implemented, sweep in flight
+
+Every episode this env has ever produced began at exactly one arm pose, and the expert's
+transit is solved *from* that pose, so neither the policy nor the expert had ever been asked
+whether they depend on it.
+
+* `mdp.randomize_arm_start` — a `reset` event applying uniform per-joint jitter to the six arm
+  joints, clamped into the soft limits. Fingers are left alone: the gripper is a binary
+  command and starting it half-closed is not a different initial condition, it is an illegal
+  one. **Off by default**; `RE3SIM_ARM_START_JITTER=<radians>` turns it on, so every number
+  measured before this still describes the shipped env.
+* `plan_episode(q_start=...)` solves the transit chain and the home TCP from the pose the env
+  is **actually** in, not from `kin.q_arm0`.
+* The executor captures `q_start` right after `env.reset()` (before any planning teleport) and
+  restores the arm to *that*, not to the shared default — otherwise the restore would silently
+  undo the randomisation the plans were just solved against.
+
+⚠ **The sweep (`jitter = 0.0 / 0.15 / 0.30 rad`, 128 envs, seed 13) was still running at
+compaction.** Results land in `/tmp/.../scratchpad/jit_*.hdf5` and the log; re-run with:
+
+```
+cd /home/eva/Desktop/isaacLab/eva_bc
+for J in 0.0 0.15 0.30; do
+  RE3SIM_ARM_START_JITTER=$J python -u re3sim/expert/collect_demos.py --headless \
+    --num_envs 128 --batches 1 --seed 13 --out /tmp/jit_$J.hdf5
+done
+```
+
+**`jitter=0.0` is the control and must reproduce 96.1 % / 123 of 128 on seed 13.** If it does
+not, the regression is in the `q_home = q_start` change or the padding mask, not in the
+jitter. Expect degradation with jitter for two reasons worth separating in the taxonomy:
+`plan-failed` rising means the transit could not be solved from the new start (a planner
+limit), while `never-got-there` rising means it was solved and not followed (a control limit).
+A jittered start can also spawn the gripper intersecting an object, since `reset_objects` keeps
+clear of the box but not of the arm.
+
 ## 6. Plan from here — *subject to change*
 
-1. **Regenerate demos and retrain BC.** Every BC number on record (7.8 / 20.1 / 19.5 % for
+1. **Finish the arm-start sweep** (§5c) — it was running at compaction. Check the control
+   first.
+2. **Regenerate demos and retrain BC.** Every BC number on record (7.8 / 20.1 / 19.5 % for
    1024 / 2048 / 4096 episodes) came from an expert that closed its gripper while the arm was
-   still moving *and* ran against a cube whose yaw did not match its plan. At ~64 % retention a
-   94 % expert projects to ~60 %. **The whole curve needs redoing.**
+   still moving, ran against a cube whose yaw did not match its plan, **and was trained on
+   demonstrations in which ~40 % of the steps were the arm holding still for the batch's
+   sake** (§5b). At ~64 % retention a 95 % expert projects to ~60 %. **The whole curve needs
+   redoing, and the padding fix alone may move it.**
    * `train_mask` is now **per step**, and demos carry an `attempts` attribute. Decide
      deliberately whether recovery episodes (`attempts > 0`) belong in the training set — they
      are a genuinely harder, multimodal behaviour to imitate.
-2. **DAgger**, better targeted now. Its ceiling is the expert's own rate.
-3. **Vision distillation.** Now unblocked on both of its old blockers: the multi-env splat bug
+   * Consider collecting with a **non-zero start jitter** once §5c says what it costs: a
+     policy whose training set contains exactly one initial arm pose has no reason to be robust
+     to any other, and that is the first thing real hardware will violate.
+3. **DAgger**, better targeted now. Its ceiling is the expert's own rate.
+4. **Vision distillation.** Now unblocked on both of its old blockers: the multi-env splat bug
    (§4.4) and the washed-out object colour (the cube is authored with real materials). Note the
    camera constraint in §4.3 and the planner-population trap in §4.1 — a vision run *must* be
    small, so its expert will be weaker than the 128-env number.
-4. **Real-hardware bring-up.** Still needs the two user answers below.
+5. **Real-hardware bring-up.** Still needs the two user answers below.
 
 ### Still needs the user
 
@@ -244,3 +350,7 @@ primitives. They are left uncommitted for a separate, deliberate decision.
   because gaussians are volumetric, not surface samples.
 * Do **not** trust a screen, gate or renderer that cannot reach the configuration you are
   worried about. Three separate bugs this session were invisible for exactly that reason.
+* Do **not** assume a render outside a simulation step produces a frame. It does not, and
+  three warm-up attempts failed on that assumption before a stepped pre-roll fixed it (§7).
+* Do **not** read "the arm is holding still" as "the expert is being careful" without checking
+  `pad()` first — 412 consecutive steps of it were batch padding (§5b).

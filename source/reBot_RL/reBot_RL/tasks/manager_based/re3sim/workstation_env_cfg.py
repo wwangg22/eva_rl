@@ -416,6 +416,9 @@ class TerminationsCfg:
 @configclass
 class EventCfg:
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
+    # Must follow `reset_all`, which puts the arm back at the single pose every episode has
+    # ever started from. Off unless `RE3SIM_ARM_START_JITTER` is set.
+    reset_arm_start = EventTerm(func=mdp.randomize_arm_start, mode="reset")
     # ORDER MATTERS. The box is placed first and the objects are then kept clear of it:
     # sampling objects first can leave a 218 mm box no legal spot, and an env that spawns
     # unwinnable episodes silently caps every success number measured in it.

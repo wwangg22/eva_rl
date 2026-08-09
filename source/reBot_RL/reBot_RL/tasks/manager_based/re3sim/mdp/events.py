@@ -327,3 +327,45 @@ def randomize_cube_pattern(
         changed += 1
     print(f"[workstation] randomised the Rubix cube pattern on {changed} envs "
           f"(RE3SIM_CUBE_PATTERN_DR=0 to disable)")
+
+
+def randomize_arm_start(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    jitter: float | None = None,
+):
+    """Start the arm somewhere other than the single pose ``env.reset()`` always produces.
+
+    Every episode this env has ever generated began at exactly ``_START_POSE``. That is a
+    strong, invisible assumption: a policy trained on it has never seen the arm anywhere else
+    at step 0, and the scripted expert's transit is solved *from* that pose, so neither has
+    ever been asked whether it depends on it. This term asks.
+
+    Uniform per-joint jitter on the six arm joints, clamped into the soft limits. The fingers
+    are left alone -- the gripper is a binary command and starting it half-closed is not a
+    different initial condition, it is an illegal one.
+
+    **Off by default** (``jitter=0``), so every number measured before 2026-08-09 still
+    describes the shipped env. ``RE3SIM_ARM_START_JITTER=<radians>`` turns it on without
+    editing a config, which is how it gets swept.
+    """
+    j = float(os.environ.get("RE3SIM_ARM_START_JITTER", "0.0")) if jitter is None else jitter
+    if j <= 0.0:
+        return
+    robot = env.scene[asset_cfg.name]
+    ids = torch.arange(env.num_envs, device=env.device) if env_ids is None else env_ids
+    arm, _ = robot.find_joints("joint[1-6]")
+    arm = torch.tensor(arm, device=env.device)
+
+    q = robot.data.default_joint_pos[ids].clone()
+    v = torch.zeros_like(q)
+    noise = (torch.rand(len(ids), len(arm), device=env.device) * 2.0 - 1.0) * j
+    q[:, arm] += noise
+    # Clamp into the joint limits. A start pose outside them is not a harder initial
+    # condition, it is one PhysX will quietly project back and then the recorded "start" is
+    # not the start that was drawn.
+    lo = robot.data.soft_joint_pos_limits[ids, :, 0]
+    hi = robot.data.soft_joint_pos_limits[ids, :, 1]
+    q = q.clamp(lo, hi)
+    robot.write_joint_state_to_sim(q, v, env_ids=ids)
