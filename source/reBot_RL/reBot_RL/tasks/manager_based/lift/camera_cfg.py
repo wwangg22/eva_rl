@@ -47,26 +47,51 @@ WRIST_CAM_CFG = CameraCfg(
     # Leaf name is required: pointing prim_path at the rigid-body prim itself makes Isaac Lab
     # silently re-root the sensor at <link>/camera.
     prim_path="{ENV_REGEX_NS}/Robot/" + _GRIPPER_END + "/WristCam",
-    # Mount chosen by Big Will from rendered sweep grids (logs/camera_previews/wrist_grid_sweep*):
-    # position q5 (19 cm toward the gripper, 1 cm up from the first-guess mount) with rotation
-    # "c" (forward prim +X, up prim +Z). NOTE the offset frame: the gripper_end geometry prim is
-    # NOT the physics body frame -- it spawns world-aligned -- so tune this empirically via the
-    # sweep scripts rather than deriving quaternions from link axes.
-    # 2026-08-03: tilted -30 deg about the camera-local X (pitch) axis so the view centers the
-    # gripper instead of sitting perpendicular to the wrist (Big Will's pick, tilt_x_m30 from
-    # scripts/wrist_cam_tilt_sweep.py; optical axis lands 1.8 deg off the TCP, camera->TCP
-    # 0.171 m). rot = old (0.5, -0.5, -0.5, 0.5) composed with R_x(-30 deg), xyzw.
+    # 2026-08-09: position set from the MEASURED physical mount, replacing the sweep-picked
+    # placeholder. Measured relative to the physical fingertip: 77 mm behind the tip along the
+    # gripper axis, 67 mm above it, 9.5 mm to the robot's left (looking wrist->fingertips).
+    # Conventions verified in-sim, world-space only (scratch gripper_frame_probe, 2026-08-09):
+    #   - the gripper_end BODY origin is AT the fingertip: the closed finger-body origins
+    #     coincide (0.1 mm) at a point 41.9 mm behind it along wrist->tip -- exactly the
+    #     measured TCP_OFFSET. (The fingers/motor geometry extends backward from the origin.)
+    #   - pointing direction taken from link6->gripper_end body positions (not local axes).
+    #   - CAUTION: the gripper_left/gripper_right body NAMES are mirrored -- gripper_left sits
+    #     on the robot's RIGHT. Robot-left here = up x fwd, not the naming.
+    # FRAME (verified 2026-08-09, nested-camera swing test): the renderer composes this
+    # offset with the gripper_end BODY pose via fabric -- the camera genuinely rides the
+    # link -- but the sensor's reported pos_w / the USD transform stay frozen at the spawn
+    # value. NEVER solve or verify this offset against cam.data.pos_w; verify by rendering.
+    # (The old "offset frame is world-aligned" comment was a misdiagnosis of that stale
+    # readout.) So the offset is authored directly in the gripper_end body frame, whose
+    # origin is the physical fingertip with -X backward along the gripper axis, +Z up,
+    # +Y robot-left: pos is the tape-measured mount verbatim -- 77 mm behind the tip,
+    # 9.5 mm to the robot's left, 67 mm above.
+    # Rotation: (0.5, -0.5, -0.5, 0.5) bore-sights the camera along the gripper axis
+    # (opengl, xyzw); composed with R_x(-18.8 deg). The tilt was CALIBRATED against the
+    # live D405 feed (2026-08-09): sweep sim tilts, measure how many pixel rows of the
+    # fingertip silhouette are visible from the frame bottom, match the real feed's
+    # 81 px / 16.9% -> -18.8 deg below the gripper axis (sim shows 75 px at -18, 98 px
+    # at -21). The user's protractor said ~12 deg -- the delta is case-vs-optical-axis
+    # + principal-point offset; trust the optical match. Residual mount uncertainty is
+    # covered by randomize_camera_mount's per-env jitter.
     offset=CameraCfg.OffsetCfg(
-        pos=(-0.092, 0.0, 0.042),
-        rot=(0.353553, -0.353553, -0.612372, 0.612372),
+        pos=(-0.077, 0.0095, 0.067),
+        rot=(0.41162, -0.41162, -0.57495, 0.57495),
         convention="opengl",
     ),
-    spawn=sim_utils.PinholeCameraCfg(
-        focal_length=_APERTURE / 1.80083,  # 2*tan(42 deg) -> 84 deg HFOV
-        horizontal_aperture=_APERTURE,
+    # MEASURED device intrinsics (2026-08-09, rs API, D405 serial 260522275150, color
+    # 640x480 -- the 4:3 stream the real rig records, NOT the 16:9 datasheet crop):
+    # fx=392.18 fy=391.44 ppx=314.62 ppy=225.73 -> 78.4 x 63.1 deg FOV. The 4:3 vertical
+    # FOV is what puts the fingertip at the bottom edge of the real feed; the old 16:9
+    # model clipped it. Principal point is 14 px above center (~2 deg of effective tilt),
+    # so keep the off-center cx/cy. Distortion (mild inverse Brown-Conrady) not modeled.
+    spawn=sim_utils.PinholeCameraCfg.from_intrinsic_matrix(
+        intrinsic_matrix=[392.18, 0.0, 314.62, 0.0, 391.44, 225.73, 0.0, 0.0, 1.0],
+        width=640,
+        height=480,
         clipping_range=(0.02, 5.0),
     ),
-    width=1280,
-    height=720,
+    width=640,
+    height=480,
     data_types=["rgb"],
 )
