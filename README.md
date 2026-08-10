@@ -40,14 +40,14 @@ which lives in the sibling `reBot_ACT/` repository. The v1 environment here
 ## Installation
 
 Reference setup (conda env `env_isaaclab6`, python 3.12, Isaac Lab 3.0 checked
-out at `~/Desktop/isaacLab/IsaacLab-3.0`):
+out at `~/Desktop/isaacLab/IsaacLab`):
 
 ```bash
 conda create -n env_isaaclab6 python=3.12 && conda activate env_isaaclab6
 pip install "isaacsim[all,extscache]==6.0.1.0" --extra-index-url https://pypi.nvidia.com --pre
 pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 pip install numpy==2.3.1 scipy==1.17.0          # isaacsim-core pins these
-cd ~/Desktop/isaacLab/IsaacLab-3.0 && ./isaaclab.sh -i
+cd ~/Desktop/isaacLab/IsaacLab && ./isaaclab.sh -i
 cd <this repo> && python -m pip install -e source/reBot_RL
 ```
 
@@ -67,10 +67,61 @@ to get the interactive viewer (costs throughput, so leave it off for training).
 | `Rebot-ClutterExtract-v0` / `-Tight-v0` / `-Play-v0` | **Challenge suite.** Extract a target block from a row of four lighter distractors and set it down in a goal zone *without toppling a neighbour*. Free gaps measure 7–19 mm after jitter. The greedy reach-and-close action is frequently wrong. 42-D obs. See [docs/envs/clutter-extract.md](docs/envs/clutter-extract.md). |
 | `Rebot-DrawerOrder-v0` / `-Play-v0` | **Challenge suite.** Pull a drawer open by its handle, *then* stow a block in it. The carry reward is hard-gated to exactly zero until the drawer is open, so no gradient bridges the two stages. Procedurally authored one-DOF cabinet. 33-D obs. See [docs/envs/drawer-order.md](docs/envs/drawer-order.md). |
 | `Rebot-PreGrasp-v0` / `-Play-v0` | **Challenge suite — ⚠ premise disproven, needs redesign.** Intended as extrinsic dexterity (tip an ungraspable block up, then grasp it). Measurement showed the fingers force open to ~120 mm, so the start state is graspable after all. Builds and tests clean; see [docs/envs/pregrasp.md](docs/envs/pregrasp.md) for the numbers and redesign options. |
+| `Rebot-Workstation-PickPlace1-v0` / `-Play-v0` | **Reconstructed real workstation.** Pick a 56 mm Rubik's cube off a photoreal 3D-Gaussian desk and place it in a measured cardboard box, among clutter. Geometry is *measured* (calipers + scale), appearance is a 3DGS reconstruction of an actual desk. 41-D privileged obs. See [docs/envs/re3sim/](docs/envs/re3sim/). |
+| `Rebot-Workstation-PickPlace1-Vision-v0` / `-Vision-Play-v0` | ⭐ The same task **with the two cameras the real rig has** — a wrist D405 (measured intrinsics, feed-calibrated tilt) and a workstation camera 0.66 m in front of the base, 1.00 m up, 75° down. Also clones the gaussian desk per env, which any multi-env render needs. This is the task to train a pixels-only policy on. |
+| `Rebot-Workstation-PickPlace1-Strict-v0` | Harder rung: disturbing the clutter ends the episode. Not for development — a 73.3 % expert scored 16.4 % once displacement was actually tested. |
 | `Rebot-PickPlace-v1` / `-Play-v1` | v1: randomized movable basket (kinematic rigid body repositioned every reset), wider object spawns with lying-on-side probability, per-env object scale / mass / gain / start-pose diversity, 41-D obs (basket center xy appended), sparse rewards only. Stage 0 of the planner→ACT→residual pipeline. |
 
 All tasks register an `rl_games_cfg_entry_point`; the lift task additionally has
 an RSL-RL config.
+
+## Quickstart — the reconstructed workstation
+
+Everything this task needs is in the repo, including the 88 MB gaussian desk (Git LFS). From a
+clean clone:
+
+```bash
+git lfs pull                                   # the desk, the robot USD, the lookup tables
+python -m pip install -e source/reBot_RL
+```
+
+Look at the scene before training anything — the splats are visual-only, so *every* automated
+check passes whether they are placed correctly or not rendering at all:
+
+```bash
+python -u scripts/render_workstation.py --enable_cameras --headless
+python -u scripts/station_cam_tilt_sweep.py --enable_cameras --headless   # camera placement
+```
+
+State-based training sees no pixels and wants many envs:
+
+```bash
+python -u scripts/rl_games/train.py --task Rebot-Workstation-PickPlace1-v0 --headless --num_envs 1024
+```
+
+Pixels-only training uses the `-Vision-v0` ids, which put both cameras in the scene and give
+every env its own desk. Rendering is bound by TOTAL render-product pixels across all envs, not
+by resolution alone: 128 envs x 2 cameras x 160x120 is fine on 10 GB, 64 envs x 1 camera x
+640x480 comes back blank.
+
+```bash
+python -u scripts/render_workstation.py --enable_cameras --headless \
+    --task Rebot-Workstation-PickPlace1-Vision-Play-v0 --num_envs 8 --env 3
+```
+
+Environment variables that change the task:
+
+| variable | default | effect |
+|---|---|---|
+| `RE3SIM_SPLATS_PER_ENV` | `0` | clone the gaussian desk per env. **Required for any multi-env render** on the non-vision tasks; the `-Vision-v0` ids set it themselves. |
+| `RE3SIM_ARM_START_JITTER` | `0.0` | uniform per-joint jitter (radians) on the arm's start pose. Measured expert cost: 96.1 % at 0, 90.6 % at 0.15, 75.0 % at 0.30. |
+| `RE3SIM_CUBE_PATTERN` | per-env random | pin every env to one of the 8 authored cube patterns. |
+| `RE3SIM_SCANNED_CLUTTER` | `0` | use the photogrammetry clutter instead of analytic primitives. |
+| `RE3SIM_CAM_W` / `RE3SIM_CAM_H` | `160` / `120` | camera resolution on the `-Vision-v0` tasks. Keep it 4:3 — the wrist intrinsics are calibrated at 640x480 and 16:9 changes the vertical FOV. |
+| `RE3SIM_SPLATS` | — | point at a different gaussian field, for A/B. |
+
+The scripted expert, demo collection and the BC / DAgger stack live in the sibling `eva_bc`
+repo (`eva_bc/re3sim/`).
 
 ## Training
 

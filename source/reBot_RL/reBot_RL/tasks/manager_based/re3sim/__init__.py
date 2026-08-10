@@ -27,6 +27,14 @@ _TASKS = [
     # harder rung: disturbing the clutter ends the episode. Not for development.
     ("Rebot-Workstation-PickPlace1-Strict-v0", "workstation_env_cfg",
      "RebotWorkstationPickPlace1StrictEnvCfg"),
+    # ⭐ Same task WITH the two cameras a real rig has, for policies that only see pixels.
+    # Separate ids rather than a flag: a CameraCfg in the scene creates one render product per
+    # env, which the state-based task at 1024 envs neither wants nor can afford. These also
+    # clone the gaussian desk per env, which any multi-env RENDER needs and no state run does.
+    ("Rebot-Workstation-PickPlace1-Vision-v0", "workstation_vision_env_cfg",
+     "RebotWorkstationPickPlace1VisionEnvCfg"),
+    ("Rebot-Workstation-PickPlace1-Vision-Play-v0", "workstation_vision_env_cfg",
+     "RebotWorkstationPickPlace1VisionEnvCfg_PLAY"),
 ]
 
 for _id, _mod, _cls in _TASKS:

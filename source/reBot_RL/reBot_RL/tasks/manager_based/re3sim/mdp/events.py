@@ -369,3 +369,38 @@ def randomize_arm_start(
     hi = robot.data.soft_joint_pos_limits[ids, :, 1]
     q = q.clamp(lo, hi)
     robot.write_joint_state_to_sim(q, v, env_ids=ids)
+
+
+def aim_station_camera(
+    env,
+    env_ids: torch.Tensor | None,
+    eye: tuple[float, float, float],
+    target: tuple[float, float, float],
+    sensor_name: str = "station_cam",
+):
+    """Point the workstation camera at its env, after every reset.
+
+    The camera is a scene sensor rather than something each tool mounts for itself, so the
+    pose has to live with the scene too. It cannot simply be baked into ``CameraCfg.OffsetCfg``
+    at spawn: ``reset_scene_to_default`` restores prim poses, and a camera left at the default
+    pose films the floor.
+
+    ⭐ ONE POSE PER CAMERA. ``set_world_poses_from_view`` builds ``arange(count)`` for the
+    indices but does NOT broadcast a single row to match, so handing it one pose at
+    ``num_envs > 1`` leaves every camera but the first at its spawn pose -- and the render then
+    shows the bare ground plane. That bug shipped twice before it was caught, once in the
+    renderer and once in the demo recorder, because a single-env test cannot reach it.
+
+    Uses the same call the demo recorder used, deliberately: the round-1 vision dataset was
+    recorded through ``set_world_poses_from_view(origins + eye, origins + target)``, and a
+    re-derived quaternion that is even slightly different would make every future render
+    subtly inconsistent with the data already collected.
+    """
+    cam = env.scene[sensor_name]
+    ids = torch.arange(env.num_envs, device=env.device) if env_ids is None else env_ids
+    org = env.scene.env_origins[ids]
+    cam.set_world_poses_from_view(
+        org + torch.tensor(eye, device=env.device),
+        org + torch.tensor(target, device=env.device),
+        env_ids=ids,
+    )

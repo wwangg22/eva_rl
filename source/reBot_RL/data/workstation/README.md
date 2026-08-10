@@ -29,25 +29,43 @@ Re3Sim pipeline. The env uses **analytic primitives** for the clutter by default
 only loaded under `RE3SIM_SCANNED_CLUTTER=1`, for an A/B. `objects/*_report.json` are their
 build reports.
 
-## The gaussian desk — NOT in this repo
+## The gaussian desk — in this repo, via Git LFS
 
-`splats.usd` is expected to be a symlink to the NuRec field built by the Re3Sim workstation
-pipeline (`Re3Sim/workstation/tools/finish_scene_splats.sh`). It is deliberately
-`.gitignore`d: it is a 356 k-gaussian build artefact of a different repository, and what sits
-here on the build machine is an *absolute* symlink that would dangle for anyone else.
+`splats_splats.usd` is the 356 k-gaussian NuRec field reconstructed from the real desk
+(`Re3Sim/workstation/tools/finish_scene_splats.sh`), and `splats.usd` is the small wrapper
+that references it. Both are committed through **Git LFS** (88 MB), so a clean clone renders
+the real scene with no extra setup — `git lfs pull` if your clone brought down the pointer
+files only.
 
-Without it the env falls back to a placeholder desk and says so at load time:
+They used to be absolute symlinks into a sibling repo, which meant everyone else got a
+dangling link and silently trained against a placeholder desk.
+
+If the files are missing the env falls back to a placeholder and says so at load time, rather
+than failing:
 
 ```
 [workstation] desk: PLACEHOLDER SeattleLabTable -- splats not built yet
 ```
 
-To point at one:
+That fallback is fine for state-based training, which never looks at pixels. It is **not** fine
+for vision: a policy trained against the placeholder table has not seen the desk it will be
+deployed on.
 
-```
-ln -s /path/to/Re3Sim/data/scene2/splats.usd        source/reBot_RL/data/workstation/splats.usd
-ln -s /path/to/Re3Sim/data/scene2/splats_splats.usd source/reBot_RL/data/workstation/splats_splats.usd
-```
+`RE3SIM_SPLATS=/some/other/field.usd` overrides the path, which is how a re-trained or pruned
+field gets A/B-rendered against the shipped one.
 
-`RE3SIM_SPLATS=/some/other/field.usd` overrides the path without touching the symlink, which
-is how a re-trained or pruned field gets A/B-rendered against the shipped one.
+### One desk per env
+
+The splats are appearance-only — no collider, nothing in the MDP reads them. The default task
+spawns **one** field at `/World/Splats`, because replicating 356 k gaussians across 1024 envs
+would cost memory to render a backdrop that state-based training never looks at.
+
+⭐ Any run that RENDERS at `num_envs > 1` needs one per env instead. Isaac Lab's cloner centres
+the env grid on the world origin, so with a single world prim every env but the one straddling
+the origin renders the arm and the cube floating on bare ground — and nothing downstream can
+detect it, because the images still look like images.
+
+* the `-Vision-v0` tasks do this for you (`workstation_vision_env_cfg.py`)
+* `RE3SIM_SPLATS_PER_ENV=1` does it for the state tasks and the render tools
+
+Measured cost: VRAM was flat at ~4 GB for 16 / 32 / 64 envs — the gaussians instance.
