@@ -115,11 +115,19 @@ else:
 #: carry their own copies. A view that is inspected in one tool and filmed in another has to
 #: be the same view or neither measurement means anything.
 #:
-#: Chosen by rendering candidates and looking. Three of the first four were wrong in ways the
-#: arithmetic did not predict: too low and the gaussian desk's near edge cuts the cube in
-#: half, too close and the arm leaves frame.
-STATION_CAM_EYE = (0.95, 0.00, 0.42)
-STATION_CAM_TARGET = (0.17, 0.00, 0.06)
+#: 2026-08-09, Big Will's measured rig, replacing the render-picked pose: **0.66 m in front of
+#: the robot base, 1.00 m above the table, tilted 75 deg down from horizontal.** The desk's top
+#: face is z = 0 and the arm stands on it, so "above the table" is just z.
+#:
+#: The target is the mount plus one metre along that tilt -- only the DIRECTION matters to
+#: ``set_world_poses_from_view``. What the tilt actually controls is where the optical axis
+#: meets the table, ``x = EYE_X - EYE_Z / tan(tilt)``: at 75 deg that is x = +0.39 m, which is
+#: NEARER the camera than the cube's spawn (x = 0.22), so the workspace sits in the upper half
+#: of the frame and the lower third is empty desk. ~68 deg centres it instead
+#: (``scripts/station_cam_tilt_sweep.py`` renders the whole sweep). 75 deg is what was asked
+#: for and what is shipped.
+STATION_CAM_EYE = (0.66, 0.0, 1.0)
+STATION_CAM_TARGET = (0.4012, 0.0, 0.0341)
 
 
 #: The Rubix cube is **authored**, not reconstructed -- ``scripts/author_rubiks_cube_usd.py``.
