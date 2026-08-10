@@ -95,6 +95,9 @@ _FORCE_PRIMITIVES = os.environ.get("REBOT_WORKSTATION_PRIMITIVES", "") == "1"
 #: (02_RECONSTRUCTION.md §5.5) was found by rendering, and comparing renders is how the next
 #: one gets found too.
 _SPLATS_USD = os.environ.get("RE3SIM_SPLATS") or os.path.join(_DATA, "splats.usd")
+#: Clone the gaussian desk into every env instead of placing one in the world. Opt-in because
+#: it multiplies 356 k gaussians by ``num_envs``; required for any multi-env RENDERING run.
+_SPLATS_PER_ENV = os.environ.get("RE3SIM_SPLATS_PER_ENV", "0") == "1"
 _HAS_SPLATS = os.path.exists(_SPLATS_USD) and not _FORCE_PRIMITIVES
 #: Desk slab thickness. Only the top face matters -- it is at z = 0 -- but the slab has to be
 #: thick enough that a fast-moving finger cannot tunnel through it in one physics step.
@@ -330,13 +333,22 @@ class WorkstationSceneCfg(InteractiveSceneCfg):
 
     # The reconstructed desk, as 356 k gaussians rendered natively by RTX.
     #
-    # Placed ONCE in the world, not per env. It is appearance-only -- no collider, nothing in
-    # the MDP reads it -- and replicating 356 k gaussians across 1024 envs would cost gigabytes
-    # to render a backdrop that only env 0 is standing in anyway. Vision distillation, when it
-    # comes, renders one env at a time and will see the real desk; state-based training does
-    # not look at pixels at all.
+    # By default placed ONCE in the world, not per env: it is appearance-only -- no collider,
+    # nothing in the MDP reads it -- and replicating 356 k gaussians across 1024 envs would
+    # cost gigabytes to render a backdrop that only the env being looked at is standing in.
+    # State-based training does not look at pixels at all.
+    #
+    # ⭐ `RE3SIM_SPLATS_PER_ENV=1` clones it per env instead, and VISION DATA COLLECTION MUST
+    # SET IT. With the single world prim, tools "fix" the placement by translating that one
+    # prim onto the env they are filming (`place_splats()` in the renderer and the collector),
+    # which is correct for one env and silently wrong for every other one: those envs render
+    # the arm and the cube floating on the bare ground plane. Collecting a vision dataset at
+    # num_envs > 1 that way poisons N-1 of every N episodes with a backdrop the real robot
+    # will never see, and nothing in the pipeline would flag it -- the images look like
+    # images. Per-env costs VRAM (measure before raising num_envs), which is why it is opt-in
+    # rather than the default.
     splats = AssetBaseCfg(
-        prim_path="/World/Splats",
+        prim_path="{ENV_REGEX_NS}/Splats" if _SPLATS_PER_ENV else "/World/Splats",
         spawn=UsdFileCfg(usd_path=_SPLATS_USD),
     ) if _HAS_SPLATS else None
     plane = AssetBaseCfg(

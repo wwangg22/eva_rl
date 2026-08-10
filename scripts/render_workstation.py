@@ -119,7 +119,11 @@ def main() -> None:
     # the only tool that ever rendered anything, and it could not reach the configuration in
     # which the bug exists. A tool that only ever runs one configuration cannot find
     # configuration bugs. Hence `--num_envs`.
-    if float(np.abs(origin).max()) > 1e-6:
+    if os.environ.get("RE3SIM_SPLATS_PER_ENV") == "1":
+        # Cloned per env by the scene cfg -- every env has its own desk, so there is nothing
+        # to move and moving `/World/Splats` would find no prim.
+        print("[render] splats are PER-ENV; no re-placement needed", flush=True)
+    elif float(np.abs(origin).max()) > 1e-6:
         import omni.usd  # noqa: PLC0415
         from pxr import Gf, UsdGeom  # noqa: PLC0415
         prim = omni.usd.get_context().get_stage().GetPrimAtPath("/World/Splats")
