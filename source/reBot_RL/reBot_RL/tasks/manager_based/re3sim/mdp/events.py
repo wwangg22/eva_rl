@@ -149,7 +149,7 @@ def reset_objects(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     radius_range: tuple[float, float] = (0.15, 0.28),
-    target_radius_range: tuple[float, float] = (0.20, 0.28),
+    target_radius_range: tuple[float, float] = (0.225, 0.28),
     azimuth_range: tuple[float, float] = (-1.1345, 1.1345),
     min_separation: float = 0.015,
     box_clearance: float = 0.020,
@@ -184,12 +184,19 @@ def reset_objects(
     goalset in hand, ``plan_grasp`` then succeeded **10/10**. So the binding constraint was
     purely that the cube could spawn nearer the base than the table reaches.
 
-    0.20 m leaves a small margin over the measured 0.194 cutoff. The clutter keeps the full
-    ``radius_range`` -- it is never grasped, so the table does not constrain it, and shrinking
-    it too would needlessly reduce scene diversity.
+    0.225 m completes that logic (was 0.20). 0.20 was set from goalset EXISTENCE — the
+    0.035 m matching tolerance still returns candidates down to r ≈ 0.19 — but candidate
+    existence is not executability: the 2026-08-11 64-episode cuRobo-expert run measured
+    the sub-floor band directly, and **every one of its 7 whole-episode grasp failures in
+    the r < 0.225 band** was a shifted row air-closing or refusing to plan (the table's
+    own "never translate laterally" rule, paid at execution time instead of planning
+    time). 0.225 = the table's 0.221 floor plus margin. The clutter keeps the full
+    ``radius_range`` -- it is never grasped, so the table does not constrain it, and
+    shrinking it too would needlessly reduce scene diversity.
 
-    NOTE this makes the task EASIER than every result recorded before 2026-08-10: the near
-    band, where the arm is most folded, is no longer sampled for the target.
+    NOTE this makes the task EASIER than every result recorded before 2026-08-10 (and
+    2026-08-11's floor raise slightly again): the near band, where the arm is most
+    folded, is no longer sampled for the target.
 
     Must run AFTER ``reset_box``: it reads the box centre from the buffer that event writes.
     """
