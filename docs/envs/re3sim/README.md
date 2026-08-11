@@ -11,6 +11,9 @@ same conventions as the rest of `docs/envs/`.
 | [02_RECONSTRUCTION.md](02_RECONSTRUCTION.md) | **the Re³Sim pipeline as env setup** — measured alignment, the object scale gate, the six `reconstruct.py` fixes | live |
 | [03_EXPERT_AND_BC.md](03_EXPERT_AND_BC.md) | the scripted expert, its cost-function fix, and the flow-BC stack | live |
 | [04_AUTHORED_CUBE_AND_RECOVERY_EXPERT.md](04_AUTHORED_CUBE_AND_RECOVERY_EXPERT.md) | ⭐ the authored Rubix cube (and its per-env patterns), the front camera, and the goalset/hold-check/regrasp expert | live |
+| [05_VISUAL_DR.md](05_VISUAL_DR.md) | the -VisionDR tasks: every DR axis, every gate, every catch; machine limits; collection runbook | live |
+| [06_VISION_POLICY.md](06_VISION_POLICY.md) | the pixels-only student rounds 1–2 — where it actually breaks (grasp precision, wrist blackout) | live |
+| [07_CUROBO_EXPERT.md](07_CUROBO_EXPERT.md) | the pick-and-place cuRobo expert ported to the workstation: diagnosis ledger + measured state | live |
 | [01_STEP1_PLAN.md](01_STEP1_PLAN.md) | Step 1 — a good randomised env to work with | **planning** |
 | [pickandplace1/](pickandplace1/) | Step 2+ — expert → BC → eval → x0-steering → vision | **planning** |
 
