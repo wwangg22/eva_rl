@@ -5,8 +5,9 @@ context: assume nothing from the session that produced it.*
 
 Read alongside: **[05_VISUAL_DR.md](05_VISUAL_DR.md)** (the DR module, every gate, every
 catch), **[07_CUROBO_EXPERT.md](07_CUROBO_EXPERT.md)** (the ported expert's diagnosis
-ledger), **[06_VISION_POLICY.md](06_VISION_POLICY.md)** (upstream's vision-student rounds
-1–2 and where the student actually breaks — read before touching the student).
+ledger). `06_VISION_POLICY.md` was **purged 2026-08-11 on Big Will's instruction** — it
+documented a third party's student rounds built on the broken pre-takeover expert and is
+unrelated to this campaign (recoverable from git history at f356007 if ever needed).
 
 ---
 
@@ -32,9 +33,8 @@ ledger), **[06_VISION_POLICY.md](06_VISION_POLICY.md)** (upstream's vision-stude
 | **-VisionDR tasks** (visual domain randomisation) | `reBot_RL .../re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}`, ids `Rebot-Workstation-PickPlace1-VisionDR{,-Play}-v0` | ALL gates PASS (§2b); appearance-only proven bit-exact |
 | **sensor-level augmentation** | `reBot_ACT/act/augment_vision.py`, `--augment` on `train_flow_vision.py` | strength-monotone, identity at 0, 10 ms/img |
 | **robustness matrix** | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | per-axis rows on -VisionDR-Play, ckpt-keyed resume |
-| **vision student** | upstream rounds 1–2 | **1.6 % / 0.0 %** — NOT a data-scale problem; see §5 and 06_VISION_POLICY.md |
 | env spawn band (grasp target) | `mdp/events.py reset_objects` | cube annulus **0.225–0.28 m** (this session; was 0.20, orig 0.15). ⚠ obsoletes every pre-change success number until re-measured |
-| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | upstream's vision_r1 (238 eps) + vision_d1 (231 DAgger); no DR data collected yet |
+| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | vision_r1 (238 eps) + vision_d1 (231 DAgger) are from the **purged third-party effort** (old spawn band, pre-takeover expert) — do not mix into training; ~40 GB reclaimable if Big Will approves deletion. No DR data collected yet |
 
 ## 2. What this session did, in order
 
@@ -114,8 +114,7 @@ hazard; `record_video.py`'s unguarded camera re-aim. Full list + fixes in 05 §4
   they are the reason the DR module can be trusted at all. Convention-trap country
   (wxyz/xyzw, opengl/ros/world) demands empirical equality, not docstring faith.
 * *Instrument before iterating.* The pocket-vs-cube print solved the yaw-parity bug in
-  one read; upstream's handoff-sweep (06 doc) localised the student's failure for 40 min
-  where DAgger burned 4.5 h moving nothing.
+  one read. Cheap targeted probes beat blind retraining loops.
 * *Small-N A/B on the same seed* (12 eps) to validate a fix, THEN 64-ep honest numbers.
   But n=64 has ±5.5 pt CI — do not read 73.4 vs 76.6 as a difference.
 * *Import, don't copy* (grasp table, table_candidates, carry rungs, dataset loaders) —
@@ -174,29 +173,29 @@ Serial, always — one Isaac job at a time (§2c). Everything is deterministic i
 
 ## 5. Future plan (subject to change — Big Will decides)
 
-⚠ **The elephant: DR does not fix what is currently killing the student.** Upstream's
-06_VISION_POLICY.md measured the pixels-only student at 1.6 %/0.0 % with the failure
-LOCALISED: it carries and places fine once handed a grasped cube (2/3 from 75 % handoff)
-but cannot close on a 56 mm cube (0/3 from earlier handoffs) — a millimetre-precision
-problem, with the wrist camera going black exactly during the descent (undiagnosed,
-transient, NOT the near plane) and the workspace camera resolving the cube at 6.8 px.
-Visual DR buys deployment robustness; it does not buy grasp precision. So:
+*(Per Big Will 2026-08-11: the third party's student results (1.6 %/0 %) were built on
+the broken pre-takeover expert and are UNRELATED — do not treat them as evidence about
+this pipeline. Our student is trained fresh, from this campaign's data only.)*
 
-1. **Collect the DR dataset anyway** (runbook above) — it is the robustness half of the
-   program and the expert/env are verified for it. But before training the big student,
-2. **diagnose the wrist blackout** (06 doc's suspect #1) and consider **higher wrist
-   resolution** for the re-collect — a resolution change re-prices the RAM/disk budgets
-   in §2c (94 MB/ep scales with pixels; re-measure with one smoke batch),
-3. consider the **action-representation** suspect (absolute joint targets vs
-   residual/delta) before buying more data,
-4. then train nominal-vs-DR (the §4 step-3 pair), eval the **robustness matrix**, feed
-   the weakest axis back into the next DR round,
-5. **DAgger under DR** only once the student grasps at all — 06's process note stands:
-   localise before scaling (DAgger cost 4.5 h to move nothing),
+1. **Collect** (runbook above): step-0 gate → baseline s21 → DR seeds 31/32/33.
+2. **Train the pair**: nominal-only student vs (nominal + 3×DR + `--augment 1.0`) student
+   (§4 step 3). Eval BOTH on the nominal task and on -VisionDR-Play — the 2×2 is the
+   first real evidence of what DR buys.
+3. If the student underperforms, **localise before scaling** — handoff-style probes
+   (take over mid-episode from a replayed expert prefix) and per-camera ablations are
+   cheap; blind DAgger/data-scaling rounds are not. Watch specifically: wrist-camera
+   image quality during the descent, cube pixel footprint in the workspace cam
+   (~7 px at 160×120), and action representation (absolute joint targets vs delta) —
+   candidate levers if grasp precision is the weak phase. A camera-resolution change
+   re-prices the RAM/disk budgets in §2c (94 MB/ep scales with pixels; re-measure with
+   one smoke batch first).
+4. **DAgger under DR** once the base student shows signal, then re-eval.
+5. Run the **robustness matrix** (`eval_vdr_matrix.sh`), feed the weakest axis back into
+   the next DR round.
 6. cuRobo-expert hardening if it is to become a collector (07 doc ledger: obstacle-blocked
    plan refusals ~6 %, close-shoves ~4 %, place-on-rim ~3 %); the ArmKin expert remains
-   the production collector meanwhile,
-7. real-robot bring-up: the robustness matrix's per-axis success-vs-magnitude curves are
+   the production collector meanwhile.
+7. Real-robot bring-up: the robustness matrix's per-axis success-vs-magnitude curves are
    the deploy-readiness evidence Big Will asked the whole campaign for.
 
 ## 6. Traps, refreshed (append-only; the old lists still hold)
@@ -209,8 +208,9 @@ Visual DR buys deployment robustness; it does not buy grasp precision. So:
 4. Env-child `xformOp:translate` is env-LOCAL — never add `env_origins` (§2b).
 5. One Isaac instance; 64-env collection cap; MemoryMax wrapper; ~94 MB/episode (§2c).
 6. The spawn-band change invalidates prior expert numbers until re-measured (§4 step 0).
-7. Numbered-doc collision: upstream took 06 for the vision policy; the cuRobo expert doc
-   is **07** (two of this session's commit messages still say 06 — follow the file).
+7. The doc numbering skips 06: that slot held the purged third-party vision-policy doc
+   (see header note); the cuRobo expert doc is **07** and stays 07 (two earlier commit
+   messages say 06 — follow the file).
 8. `-VisionDR` + `collect_demos`/`record_video`: the env owns the station-cam pose
    (guarded by `aim_station_cam` presence). If that event is ever renamed, three guards
    fail OPEN to the fixed aim — grep "aim_station_cam" first.
