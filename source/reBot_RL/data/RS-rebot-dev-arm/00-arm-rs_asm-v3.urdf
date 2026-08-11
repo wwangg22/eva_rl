@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<robot name="rs_rebot">
+  <link name="base_link">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link1">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link2">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link3">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link4">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link5">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="link6">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="gripper_end">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="gripper_left">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <link name="gripper_right">
+    <inertial><mass value="0.01"/><inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/></inertial>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="-0.000342830 -0.000986830 0.075000003" rpy="0.000000000 -0.000000000 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="-2.799999900" upper="2.799999900" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0.020343000 0.027237000 0.070000000" rpy="-1.570800036 -0.000000000 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 -1.000000000"/>
+    <limit lower="-3.140000083" upper="0.000000000" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="-0.236000001 0.000000000 0.000000000" rpy="0.000000000 -0.000000000 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="-3.140000083" upper="0.000000000" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="0.228000000 -0.072746001 0.004500000" rpy="0.000000000 -0.000000000 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="-1.790000051" upper="1.689999950" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child link="link5"/>
+    <origin xyz="0.086999997 -0.048000000 -0.030750001" rpy="-1.570800036 -0.000000000 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="-1.570000042" upper="1.570000042" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint6" type="revolute">
+    <parent link="link5"/>
+    <child link="link6"/>
+    <origin xyz="0.036499999 0.000000000 0.048000000" rpy="-0.000000000 1.570792618 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="-3.140000083" upper="3.140000083" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="j_gripper_end" type="fixed">
+    <parent link="link6"/>
+    <child link="gripper_end"/>
+    <origin xyz="0.000000000 -0.000000000 0.166209996" rpy="-3.141585306 -1.570792618 0.000000000"/>
+  </joint>
+  <joint name="joint_left" type="prismatic">
+    <parent link="gripper_end"/>
+    <child link="gripper_left"/>
+    <origin xyz="-0.041939002 -0.000073385 0.000000000" rpy="1.570800022 -1.570792631 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="0.000000000" upper="0.050000001" effort="100.0" velocity="3.14"/>
+  </joint>
+  <joint name="joint_right" type="prismatic">
+    <parent link="gripper_end"/>
+    <child link="gripper_right"/>
+    <origin xyz="-0.041939002 0.000073385 0.000000000" rpy="-1.570800022 -1.570792631 0.000000000"/>
+    <axis xyz="0.000000000 0.000000000 1.000000000"/>
+    <limit lower="0.000000000" upper="0.071500003" effort="100.0" velocity="3.14"/>
+  </joint>
+</robot>

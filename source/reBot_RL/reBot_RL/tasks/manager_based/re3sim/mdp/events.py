@@ -149,6 +149,7 @@ def reset_objects(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     radius_range: tuple[float, float] = (0.15, 0.28),
+    target_radius_range: tuple[float, float] = (0.20, 0.28),
     azimuth_range: tuple[float, float] = (-1.1345, 1.1345),
     min_separation: float = 0.015,
     box_clearance: float = 0.020,
@@ -170,6 +171,26 @@ def reset_objects(
     it also keeps each object's unobserved underside -- which the reconstruction fills with a
     synthetic flat base -- permanently hidden from the camera.
 
+    ⭐ The GRASP TARGET gets a tighter annulus than the clutter (``target_radius_range``),
+    and the reason is the planner, not the scene. The proven 12 953-entry grasp table
+    (``data/pick_place_demos/grasp_table.pt``, shared with the pick-and-place expert) spans
+    tool radii **0.221 .. 0.337 m**, and ``spike_plan_grasp.table_candidates`` matches by
+    radius within 0.035 m and deliberately refuses to substitute distant candidates -- a
+    rigid lateral shift of 2-3 cm leaves this wrist's feasibility manifold entirely.
+
+    MEASURED by calling ``table_candidates`` on 60 real cube spawns: at the old
+    ``radius_range`` minimum of 0.15 m only **34/60 (57 %)** returned a goalset at all, and
+    every failure sat at radius 0.152-0.191 while every success sat at 0.194-0.279. With a
+    goalset in hand, ``plan_grasp`` then succeeded **10/10**. So the binding constraint was
+    purely that the cube could spawn nearer the base than the table reaches.
+
+    0.20 m leaves a small margin over the measured 0.194 cutoff. The clutter keeps the full
+    ``radius_range`` -- it is never grasped, so the table does not constrain it, and shrinking
+    it too would needlessly reduce scene diversity.
+
+    NOTE this makes the task EASIER than every result recorded before 2026-08-10: the near
+    band, where the arm is most folded, is no longer sampled for the target.
+
     Must run AFTER ``reset_box``: it reads the box centre from the buffer that event writes.
     """
     n = len(env_ids)
@@ -189,7 +210,8 @@ def reset_objects(
                 break
             idx = pending.nonzero(as_tuple=False).squeeze(1)
             m = len(idx)
-            r = radius_range[0] + torch.rand(m, device=dev) * (radius_range[1] - radius_range[0])
+            rr = target_radius_range if name == TARGET_NAME else radius_range
+            r = rr[0] + torch.rand(m, device=dev) * (rr[1] - rr[0])
             az = azimuth_range[0] + torch.rand(m, device=dev) * (azimuth_range[1] - azimuth_range[0])
             cand = torch.stack([r * torch.cos(az), r * torch.sin(az)], dim=1)
             xy[idx, i] = cand
