@@ -28,15 +28,20 @@ same conventions as the rest of `docs/envs/`.
 Newest first. One entry per session; link out to a numbered doc when an entry needs more
 than a paragraph.
 
-### 2026-08-11 — old-expert docs purged; collection campaign starts
+### 2026-08-11 — old-expert docs purged; ⭐ collector = cuRobo; collection campaign starts
 
 Big Will confirmed `06_VISION_POLICY.md` documented a third party's student rounds built
 on the broken pre-takeover expert — unrelated to this campaign. Purged (recoverable at
-git f356007); the numbering keeps the 06 gap. Its datasets (`vision_r1`/`vision_d1`)
-stay on disk but are flagged do-not-mix in [HANDOFF.md](HANDOFF.md) §1. Collection
-runbook (HANDOFF §4) executing: step 0 **PASSED — ArmKin 95.3 % (122/128) on the new
-0.225 spawn band** (vs 96.9 % old band; the change is benign for this expert).
-Baseline `vision_base_s21` (64×6, start-pose jitter 0.15) collecting.
+git f356007); the numbering keeps the 06 gap. Env-health gate: **ArmKin 95.3 % (122/128)
+on the new 0.225 spawn band** (vs 96.9 % old band — the change is benign).
+
+**Course correction (Big Will, emphatic): the cuRobo expert is the collector** — "we
+trained the expert to USE." An ArmKin-collected baseline + partial DR set was deleted;
+`run_expert_ws.py` gained a `--shards` mode (verified byte-compatible with the
+`dataset_vision.py` layout, frame-precedes-action, 120-step splat warmup) and
+`collect_vision_curobo.sh` launches it. Baseline `vision_base_s21` (384 serial episodes,
+seed 21, jitter 0.15) collecting; DR seeds 31/32/33 queued. AWR datasets
+(`data/exp09_awr{,_eval}`) deleted per Big Will — the loop was closed non-compounding.
 
 ### 2026-08-06 (evening) — a policy runs from a cold reset on the photoreal env
 

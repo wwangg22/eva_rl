@@ -13,6 +13,12 @@ unrelated to this campaign (recoverable from git history at f356007 if ever need
 
 ## 0. Directives in force
 
+0. ⭐⭐ **Big Will (2026-08-11, emphatic): the CUROBO expert is the collector.** "We
+   trained the expert to USE. We use curobo." Every demo dataset is collected by
+   `run_expert_ws.py` via `collect_vision_curobo.sh` (single env, serial episodes,
+   shards stream per episode). The ArmKin expert is a verification/comparison tool
+   ONLY — never collect training data with it. (An earlier ArmKin-collected baseline
+   + partial DR set was deleted for exactly this reason.)
 1. **Big Will (2026-08-11): data collection is GREEN-LIT**, with start-pose randomisation
    included. Start-pose jitter is already the collection default —
    `collect_vision.sh` sets `RE3SIM_ARM_START_JITTER=0.15` unless overridden (the swept
@@ -28,13 +34,13 @@ unrelated to this campaign (recoverable from git history at f356007 if ever need
 
 | thing | where | state |
 |---|---|---|
-| **ArmKin expert** (production demo collector) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | **95.3 % (122/128) @128 envs seed 11 on the NEW 0.225 band** (§4 step 0 PASSED 2026-08-11; was 96.9 % on the old band — band change benign for this expert) |
-| **cuRobo expert** (the run_expert_v1 port, this session) | `reBot_ACT/re3sim/expert/run_expert_ws.py` | ~75 % over 128 eps (76.6/73.4 on two 64-ep runs); ledger + remaining levers in 07_CUROBO_EXPERT.md; videos `expert_ws_ep{3,4,5}_ok_*.mp4` delivered to Big Will |
+| **cuRobo expert — THE COLLECTOR** (directive 0) | `reBot_ACT/re3sim/expert/run_expert_ws.py` + `collect_vision_curobo.sh` | ~75 % over 128 eps (old band; new-band rate falls out of every collection run's SUMMARY); `--shards` mode added 2026-08-11, format verified identical to collect_demos' (incl. proprio derivation, frame-precedes-action); ledger in 07_CUROBO_EXPERT.md |
+| ArmKin expert (verification only — do NOT collect with it) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % (122/128) @128 envs seed 11 on the NEW 0.225 band (2026-08-11; band change benign) — useful as an env-health gate and success-rate reference |
 | **-VisionDR tasks** (visual domain randomisation) | `reBot_RL .../re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}`, ids `Rebot-Workstation-PickPlace1-VisionDR{,-Play}-v0` | ALL gates PASS (§2b); appearance-only proven bit-exact |
 | **sensor-level augmentation** | `reBot_ACT/act/augment_vision.py`, `--augment` on `train_flow_vision.py` | strength-monotone, identity at 0, 10 ms/img |
 | **robustness matrix** | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | per-axis rows on -VisionDR-Play, ckpt-keyed resume |
 | env spawn band (grasp target) | `mdp/events.py reset_objects` | cube annulus **0.225–0.28 m** (this session; was 0.20, orig 0.15). ⚠ obsoletes every pre-change success number until re-measured |
-| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | **vision_base_s21: 367 eps @ 95.6 %, 33 GB** (2026-08-11, jitter 0.15); DR seeds collecting. (vision_r1/vision_d1 from the purged effort are NOT on disk — stale references only.) Old pick-place: `data/exp08_{vision,dagger}` KEPT (the ~80 % student's data + the EXP09 perception-head shards); `data/exp09_awr{,_eval}` DELETED 2026-08-11 per Big Will (AWR closed non-compounding; ~12 GB freed; it1 champion head kept in `runs/exp09/`) |
+| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | **all workstation datasets are cuRobo-collected** (directive 0): vision_base_s21 collecting 2026-08-11 (384 eps attempted, seed 21, jitter 0.15), DR seeds 31/32/33 queued. An ArmKin-collected set was DELETED (wrong expert). (vision_r1/vision_d1 from the purged effort are NOT on disk — stale references only.) Old pick-place: `data/exp08_{vision,dagger}` KEPT; `data/exp09_awr{,_eval}` DELETED 2026-08-11 per Big Will (~12 GB; it1 champion head kept in `runs/exp09/`) |
 
 ## 2. What this session did, in order
 
@@ -133,32 +139,32 @@ hazard; `record_video.py`'s unguarded camera re-aim. Full list + fixes in 05 §4
   against the current tree before acting on it.
 * Two background Isaac jobs in parallel (froze the machine, twice).
 
-## 4. ⭐ The collection runbook (GREEN-LIT — execute top to bottom)
+## 4. ⭐ The collection runbook (GREEN-LIT — CUROBO expert, directive 0)
 
 ```bash
 conda activate env_isaaclab6 && cd ~/Desktop/isaacLab/reBot/reBot_ACT
 
-# 0. RE-VERIFY the ArmKin expert on the NEW spawn band (0.225 floor changed the task!)
-#    Gate: >= 90 %. ✅ PASSED 2026-08-11: 95.3 % (122/128), taxonomy clean
-#    (0 plan-failed, 6 never-got-there, 0 lifted-but-lost). Deterministic; re-run
-#    only if the env or expert code moves again. ~15 min.
-systemd-run --user --scope -p MemoryMax=26G -- \
-  python -u re3sim/expert/collect_demos.py --headless --num_envs 128 --batches 1 \
-    --seed 11 --out /tmp/verify_band225_s11.hdf5
+# 0. env-health gate (ArmKin, verification ONLY): 95.3 % @128 envs seed 11 on the
+#    0.225 band — ✅ PASSED 2026-08-11. Re-run only if env/expert code moves:
+#    systemd-run --user --scope -p MemoryMax=26G -- \
+#      python -u re3sim/expert/collect_demos.py --headless --num_envs 128 --batches 1 \
+#        --seed 11 --out /tmp/verify.hdf5
 #    Also re-run the two DR gate probes if reBot_RL moved (05 §4d — cheap).
 
-# 1. baseline (nominal appearance; start-pose jitter 0.15 is the script's default)
+# 1. baseline — cuRobo, single env, serial; ~60-90 s/episode incl. planning;
+#    shards stream per episode (a killed run keeps what it wrote)
 systemd-run --user --scope -p MemoryMax=26G -- \
-  bash re3sim/expert/collect_vision.sh re3sim/expert/data/vision_base_s21 64 6 21
+  bash re3sim/expert/collect_vision_curobo.sh re3sim/expert/data/vision_base_s21 384 21
 
 # 2. DR set — seeds 31/32/33 (baseline doubles as the ~25 % nominal mix fraction)
 for SEED in 31 32 33; do
   TASK=Rebot-Workstation-PickPlace1-VisionDR-v0 \
   systemd-run --user --scope -p MemoryMax=26G -- \
-    bash re3sim/expert/collect_vision.sh re3sim/expert/data/vision_vdr_s$SEED 64 6 $SEED
+    bash re3sim/expert/collect_vision_curobo.sh re3sim/expert/data/vision_vdr_s$SEED 384 $SEED
 done
-# gate per batch: expert success ~= step-0's number (visual DR is state-invisible;
-# a drop means a physics leak — STOP and run the invariance probes)
+# gate per run: SUMMARY success_rate ~= the baseline run's (visual DR is
+# state-invisible for the expert; a big drop means a physics leak — STOP and run
+# the invariance probes). ~8-10 h per 384-episode dataset; ~17-25 GB each.
 
 # 3. train baseline + DR policy; eval BOTH on nominal and DR; then the matrix
 python -u re3sim/act/train_flow_vision.py --data re3sim/expert/data/vision_base_s21 \
