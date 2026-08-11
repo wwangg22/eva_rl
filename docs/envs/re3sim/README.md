@@ -34,7 +34,9 @@ Big Will confirmed `06_VISION_POLICY.md` documented a third party's student roun
 on the broken pre-takeover expert — unrelated to this campaign. Purged (recoverable at
 git f356007); the numbering keeps the 06 gap. Its datasets (`vision_r1`/`vision_d1`)
 stay on disk but are flagged do-not-mix in [HANDOFF.md](HANDOFF.md) §1. Collection
-runbook (HANDOFF §4) now executing: step-0 spawn-band re-verification running.
+runbook (HANDOFF §4) executing: step 0 **PASSED — ArmKin 95.3 % (122/128) on the new
+0.225 spawn band** (vs 96.9 % old band; the change is benign for this expert).
+Baseline `vision_base_s21` (64×6, start-pose jitter 0.15) collecting.
 
 ### 2026-08-06 (evening) — a policy runs from a cold reset on the photoreal env
 

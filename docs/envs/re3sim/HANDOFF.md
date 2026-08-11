@@ -28,7 +28,7 @@ unrelated to this campaign (recoverable from git history at f356007 if ever need
 
 | thing | where | state |
 |---|---|---|
-| **ArmKin expert** (production demo collector) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 96.9 % @128 envs seed 11 on THIS machine (bit-identical to dev machine) — but measured on the OLD spawn band; re-verify on the new one (§4 step 0) |
+| **ArmKin expert** (production demo collector) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | **95.3 % (122/128) @128 envs seed 11 on the NEW 0.225 band** (§4 step 0 PASSED 2026-08-11; was 96.9 % on the old band — band change benign for this expert) |
 | **cuRobo expert** (the run_expert_v1 port, this session) | `reBot_ACT/re3sim/expert/run_expert_ws.py` | ~75 % over 128 eps (76.6/73.4 on two 64-ep runs); ledger + remaining levers in 07_CUROBO_EXPERT.md; videos `expert_ws_ep{3,4,5}_ok_*.mp4` delivered to Big Will |
 | **-VisionDR tasks** (visual domain randomisation) | `reBot_RL .../re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}`, ids `Rebot-Workstation-PickPlace1-VisionDR{,-Play}-v0` | ALL gates PASS (§2b); appearance-only proven bit-exact |
 | **sensor-level augmentation** | `reBot_ACT/act/augment_vision.py`, `--augment` on `train_flow_vision.py` | strength-monotone, identity at 0, 10 ms/img |
@@ -138,9 +138,9 @@ hazard; `record_video.py`'s unguarded camera re-aim. Full list + fixes in 05 §4
 conda activate env_isaaclab6 && cd ~/Desktop/isaacLab/reBot/reBot_ACT
 
 # 0. RE-VERIFY the ArmKin expert on the NEW spawn band (0.225 floor changed the task!)
-#    Gate: >= 90 %. The old-band numbers (96.9 % nominal / 90.6 % jittered) no longer
-#    describe this env. ~25 min. (A run may already be going/finished — check
-#    /tmp/.../tasks/ or just re-run; it's deterministic.)
+#    Gate: >= 90 %. ✅ PASSED 2026-08-11: 95.3 % (122/128), taxonomy clean
+#    (0 plan-failed, 6 never-got-there, 0 lifted-but-lost). Deterministic; re-run
+#    only if the env or expert code moves again. ~15 min.
 systemd-run --user --scope -p MemoryMax=26G -- \
   python -u re3sim/expert/collect_demos.py --headless --num_envs 128 --batches 1 \
     --seed 11 --out /tmp/verify_band225_s11.hdf5
@@ -207,7 +207,9 @@ this pipeline. Our student is trained fresh, from this campaign's data only.)*
 3. cuRobo collision tables must sit ~2 mm BELOW the physics surface (§2a.1).
 4. Env-child `xformOp:translate` is env-LOCAL — never add `env_origins` (§2b).
 5. One Isaac instance; 64-env collection cap; MemoryMax wrapper; ~94 MB/episode (§2c).
-6. The spawn-band change invalidates prior expert numbers until re-measured (§4 step 0).
+6. The spawn-band change invalidated prior expert numbers — ArmKin re-measured 95.3 %
+   on the new band (§4 step 0, 2026-08-11); the cuRobo expert's ~75 % is still an
+   old-band number.
 7. The doc numbering skips 06: that slot held the purged third-party vision-policy doc
    (see header note); the cuRobo expert doc is **07** and stays 07 (two earlier commit
    messages say 06 — follow the file).
