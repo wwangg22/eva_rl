@@ -35,6 +35,13 @@ _TASKS = [
      "RebotWorkstationPickPlace1VisionEnvCfg"),
     ("Rebot-Workstation-PickPlace1-Vision-Play-v0", "workstation_vision_env_cfg",
      "RebotWorkstationPickPlace1VisionEnvCfg_PLAY"),
+    # ⭐ The vision task under VISUAL domain randomisation (docs/envs/re3sim/05_VISUAL_DR.md):
+    # per-env camera pose/roll/focal jitter, lighting, backdrop, distractors. Appearance
+    # only — dynamics identical to -Vision-v0, so the expert's numbers carry over.
+    ("Rebot-Workstation-PickPlace1-VisionDR-v0", "workstation_vision_dr_env_cfg",
+     "RebotWorkstationPickPlace1VisionDREnvCfg"),
+    ("Rebot-Workstation-PickPlace1-VisionDR-Play-v0", "workstation_vision_dr_env_cfg",
+     "RebotWorkstationPickPlace1VisionDREnvCfg_PLAY"),
 ]
 
 for _id, _mod, _cls in _TASKS:
