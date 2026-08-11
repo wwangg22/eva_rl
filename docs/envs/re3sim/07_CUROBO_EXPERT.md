@@ -1,4 +1,4 @@
-# 06 — The cuRobo expert on the workstation (the pick-and-place expert, ported)
+# 07 — The cuRobo expert on the workstation (the pick-and-place expert, ported)
 
 *2026-08-11. Big Will's directive: "implement an expert that is exactly the same as the
 pick and place expert but for the workstation task", taking over the in-flight upstream
