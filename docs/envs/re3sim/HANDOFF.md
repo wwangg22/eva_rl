@@ -34,7 +34,7 @@ unrelated to this campaign (recoverable from git history at f356007 if ever need
 | **sensor-level augmentation** | `reBot_ACT/act/augment_vision.py`, `--augment` on `train_flow_vision.py` | strength-monotone, identity at 0, 10 ms/img |
 | **robustness matrix** | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | per-axis rows on -VisionDR-Play, ckpt-keyed resume |
 | env spawn band (grasp target) | `mdp/events.py reset_objects` | cube annulus **0.225–0.28 m** (this session; was 0.20, orig 0.15). ⚠ obsoletes every pre-change success number until re-measured |
-| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | vision_r1 (238 eps) + vision_d1 (231 DAgger) are from the **purged third-party effort** (old spawn band, pre-takeover expert) — do not mix into training; ~40 GB reclaimable if Big Will approves deletion. No DR data collected yet |
+| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | **vision_base_s21: 367 eps @ 95.6 %, 33 GB** (2026-08-11, jitter 0.15); DR seeds collecting. (vision_r1/vision_d1 from the purged effort are NOT on disk — stale references only.) Old pick-place: `data/exp08_{vision,dagger}` KEPT (the ~80 % student's data + the EXP09 perception-head shards); `data/exp09_awr{,_eval}` DELETED 2026-08-11 per Big Will (AWR closed non-compounding; ~12 GB freed; it1 champion head kept in `runs/exp09/`) |
 
 ## 2. What this session did, in order
 
@@ -96,9 +96,10 @@ hazard; `record_video.py`'s unguarded camera re-aim. Full list + fixes in 05 §4
   **64 envs × 6 batches**, and every collection runs under
   `systemd-run --user --scope -p MemoryMax=26G` (worst case a killed process, never a
   frozen box). Measured: 32 envs peak 16.9 GB total system.
-* Disk: shards are **~94 MB/episode** (measured; not the 60 first estimated). Baseline +
-  3 DR seeds ≈ 125 GB of the 146 free. Drop DR seed 33 first if tight; every slice
-  regenerates exactly from its seed.
+* Disk: shards are **~90 MB/episode** (measured again 2026-08-11: baseline 367 eps =
+  33 GB). After the AWR deletion, 120 GB free vs ~99 GB for the 3 DR seeds — fits with
+  ~20 GB headroom. Drop DR seed 33 first if that erodes; every slice regenerates
+  exactly from its seed.
 * Don't pipe long background runs through `tail`/`grep` — output buffers until exit and
   you fly blind. Redirect raw.
 
