@@ -223,3 +223,12 @@ this pipeline. Our student is trained fresh, from this campaign's data only.)*
 8. `-VisionDR` + `collect_demos`/`record_video`: the env owns the station-cam pose
    (guarded by `aim_station_cam` presence). If that event is ever renamed, three guards
    fail OPEN to the fixed aim — grep "aim_station_cam" first.
+9. ⭐ **A phantom killer stops session-attached background jobs** (2026-08-11: two
+   collection runs + one training run + its probe, killed simultaneously, no OOM/system
+   trace; Big Will confirms it is not him; suspicion: session/client reconnect events).
+   Mitigation that works: run long jobs as DETACHED systemd user services
+   (`systemd-run --user --collect -p MemoryMax=26G --unit=<name> bash -c '... > log'`)
+   and watch the log file. Distinct from the REAL cgroup OOM that killed the first
+   vbc_vdr attempt (anon-preloading 4 datasets; fixed by mmap in act/dataset_vision.py).
+   Collection interruptions: resume the remainder under a FRESH seed into the same
+   dataset dir (episodes are iid; filenames stay disjoint).
