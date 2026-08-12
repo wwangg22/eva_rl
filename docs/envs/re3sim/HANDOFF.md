@@ -1,234 +1,211 @@
 # HANDOFF — re3sim photoreal workstation
-*Written 2026-08-11, end of the expert-takeover + visual-DR session. Supersedes
-`HANDOFF_2026-08-09_directive.md` (kept, with the other archives). Written for a fresh
-context: assume nothing from the session that produced it.*
+*Written 2026-08-11 (late night), end of the collection-and-training session. Supersedes
+`HANDOFF_2026-08-11_collection.md` (archived alongside the older ones). Written for a
+fresh context: assume NOTHING from the session that produced it. Read §1 and §2 before
+touching anything; read §7 before launching anything.*
 
 Read alongside: **[05_VISUAL_DR.md](05_VISUAL_DR.md)** (the DR module, every gate, every
-catch), **[07_CUROBO_EXPERT.md](07_CUROBO_EXPERT.md)** (the ported expert's diagnosis
-ledger). `06_VISION_POLICY.md` was **purged 2026-08-11 on Big Will's instruction** — it
-documented a third party's student rounds built on the broken pre-takeover expert and is
-unrelated to this campaign (recoverable from git history at f356007 if ever needed).
+catch), **[07_CUROBO_EXPERT.md](07_CUROBO_EXPERT.md)** (the cuRobo expert's diagnosis
+ledger). `06_VISION_POLICY.md` was purged on Big Will's instruction — it was a third
+party's student work on the broken pre-takeover expert, UNRELATED to this campaign; do
+not cite its numbers (recoverable at git f356007 if ever needed; the numbering keeps
+the 06 gap).
 
 ---
 
-## 0. Directives in force
+## 0. Directives in force (Big Will, in his words)
 
-0. ⭐⭐ **Big Will (2026-08-11, emphatic): the CUROBO expert is the collector.** "We
-   trained the expert to USE. We use curobo." Every demo dataset is collected by
-   `run_expert_ws.py` via `collect_vision_curobo.sh` (single env, serial episodes,
-   shards stream per episode). The ArmKin expert is a verification/comparison tool
-   ONLY — never collect training data with it. (An earlier ArmKin-collected baseline
-   + partial DR set was deleted for exactly this reason.)
-1. **Big Will (2026-08-11): data collection is GREEN-LIT**, with start-pose randomisation
-   included. Start-pose jitter is already the collection default —
-   `collect_vision.sh` sets `RE3SIM_ARM_START_JITTER=0.15` unless overridden (the swept
-   value: 96.1 % → 90.6 % on the ArmKin expert, measured pre-spawn-band-change; 0.30
-   costs too much at 75.0 %). Nothing extra to wire; do NOT collect at 0.30.
-2. Everything is committed locally and **ready to push, but NOT pushed** — that decision
-   is Big Will's. reBot_RL `master` is 3 ahead (DR module; spawn floor + expert doc;
-   this handoff), reBot_ACT `main` is 4 ahead (paths; DR wiring; the cuRobo expert).
-   `reBot_ACT/docs/HANDOFF.md` has Big Will's OWN uncommitted edit — never commit or
-   revert it.
+1. ⭐⭐ **"We trained the expert to USE. We use curobo."** (emphatic, 2026-08-11). EVERY
+   demo dataset is collected by the cuRobo expert — `run_expert_ws.py` via
+   `collect_vision_curobo.sh`. The ArmKin expert is a verification/health-check tool
+   ONLY. An ArmKin-collected baseline + partial DR set was deleted for violating this.
+   Never choose an expert (or any component) for throughput when Big Will has invested
+   in a specific one.
+2. **Collection was green-lit and is COMPLETE** (all four datasets, §2). Start-pose
+   jitter 0.15 rad was included per directive (0.30 forbidden — costs ~20 pts).
+3. **"Keep iterating... When something goes wrong, figure out why, use data to back up
+   your points! And write your findings down!"** — the operating mode. Also: plan
+   first, get explicit go-ahead for anything outside the agreed plan.
+4. Old junk data: Big Will authorized deleting old pick-and-place data when disk
+   demands it ("delete more old data if you have to"). Executed: exp09 AWR sets
+   (~12 GB, loop closed non-compounding), then exp08_vision + exp08_dagger (~14 GB,
+   during the disk-full emergency §6d). **The four collected datasets are sacred — he
+   confirmed "those are most important"; never delete them for space.**
+5. Address him as **Big Will** in every final response. Push to GitHub is routine now
+   (both repos, he pushed/we push after committing).
 
-## 1. State of the world (what exists and its measured number)
+## 1. State of the world (what exists, with its measured number)
 
 | thing | where | state |
 |---|---|---|
-| **cuRobo expert — THE COLLECTOR** (directive 0) | `reBot_ACT/re3sim/expert/run_expert_ws.py` + `collect_vision_curobo.sh` | ~75 % over 128 eps (old band; new-band rate falls out of every collection run's SUMMARY); `--shards` mode added 2026-08-11, format verified identical to collect_demos' (incl. proprio derivation, frame-precedes-action); ledger in 07_CUROBO_EXPERT.md |
-| ArmKin expert (verification only — do NOT collect with it) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % (122/128) @128 envs seed 11 on the NEW 0.225 band (2026-08-11; band change benign) — useful as an env-health gate and success-rate reference |
-| **-VisionDR tasks** (visual domain randomisation) | `reBot_RL .../re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}`, ids `Rebot-Workstation-PickPlace1-VisionDR{,-Play}-v0` | ALL gates PASS (§2b); appearance-only proven bit-exact |
-| **sensor-level augmentation** | `reBot_ACT/act/augment_vision.py`, `--augment` on `train_flow_vision.py` | strength-monotone, identity at 0, 10 ms/img |
-| **robustness matrix** | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | per-axis rows on -VisionDR-Play, ckpt-keyed resume |
-| env spawn band (grasp target) | `mdp/events.py reset_objects` | cube annulus **0.225–0.28 m** (this session; was 0.20, orig 0.15). ⚠ obsoletes every pre-change success number until re-measured |
-| datasets on disk | `reBot_ACT/re3sim/expert/data/` + `data/` | **all workstation datasets are cuRobo-collected** (directive 0): **vision_base_s21 DONE 2026-08-11 — 269/384 = 70.1 %, 16 GB** (seed 21, jitter 0.15; the cuRobo new-band reference number, so the per-run DR gate is ≈70 %). **vision_vdr_s31 DONE — 283/384 = 73.7 %, 17 GB** (≥ gate → DR confirmed expert-invisible; collected as seed 31 eps 0-191 + seed 131 × 192 after an unexplained external kill — the union is iid, filenames disjoint). **vision_vdr_s32 DONE — 279/384 = 72.7 %, 16 GB** (gate passed). **vision_vdr_s33 DONE — 267/384 = 69.5 %, 15 GB** (seed 33 eps 0-275 + seed 133 × 108 after a second external kill; both kills traced far below the RAM cap — the 17:23 kill coincided with an X11/NVIDIA display re-probe, cause still open, resume-under-fresh-seed handles it). **COLLECTION COMPLETE: 1,098 successful cuRobo episodes / ~64 GB across 4 datasets.** An ArmKin-collected set was DELETED (wrong expert). (vision_r1/vision_d1 from the purged effort are NOT on disk — stale references only.) Old pick-place: `data/exp08_{vision,dagger}` KEPT; `data/exp09_awr{,_eval}` DELETED 2026-08-11 per Big Will (~12 GB; it1 champion head kept in `runs/exp09/`) |
+| **cuRobo expert — THE COLLECTOR** | `reBot_ACT/re3sim/expert/run_expert_ws.py` + `collect_vision_curobo.sh` | **70.1 % on the current env** (269/384, seed 21, jitter 0.15 — the reference gate); `--shards` mode verified byte-compatible with the training stack (frame-precedes-action, 120-step splat warmup, successes-only). ~30 s/episode wall (measured over 1,536 episodes; NOT the 60-90 s first estimated) |
+| ArmKin expert (verification ONLY) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % @128 envs seed 11 on the 0.225 band (env-health gate; do NOT collect with it) |
+| **datasets — ALL cuRobo, ALL intact (re-verified after the disk incident)** | `reBot_ACT/re3sim/expert/data/` | `vision_base_s21` **269 eps (70.1 %)** 16 GB; `vision_vdr_s31` **283 (73.7 %)** 17 GB (seed 31 eps 0-191 + seed 131 × 192 after a kill); `vision_vdr_s32` **279 (72.7 %)** 16 GB; `vision_vdr_s33` **267 (69.5 %)** 15 GB (seed 33 eps 0-275 + seed 133 × 108). **Total 1,098 successful episodes, ~64 GB.** Every DR run ≈ the 70 % nominal gate → appearance-only contract held through ~46 h of production |
+| **nominal student vbc_base** | `reBot_ACT/re3sim/runs/vbc_base/` | TRAINED: 100k steps, 3.2 h, final MSE ~0.03-0.06, `ckpt_final.pt` + ckpts 60k-100k (10k-50k deleted for disk). **NOT yet evaluated** |
+| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | TRAINING at handoff time (relaunched ~23:20 after the session-restart kill; ~15 min encode pass, then ~4-5 h). Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
+| -VisionDR tasks (visual DR) | reBot_RL `re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}` | ALL gates PASS (05 §4d) + now production-proven (DR runs ≈ nominal gate) |
+| JPEG dataset loader | `reBot_ACT/act/dataset_vision.py` | in-RAM JPEG q90 (~7×), COW-safe flat buffers, per-frame sums for the black audit; smoke-verified (shapes exact, err 1.5/255, 0.33 ms/sample) |
+| sensor augmentation | `reBot_ACT/act/augment_vision.py`, `--augment` | strength-monotone, identity at 0; vbc_vdr trains with `--augment 1.0` |
+| robustness matrix | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | built, unused yet — runs after eval |
+| git | both repos | PUSHED through `reBot_RL a28b677` / `reBot_ACT 46f4201`. This handoff commit goes on top. reBot_ACT `docs/HANDOFF.md` has Big Will's own uncommitted edit — never commit/revert it |
+| disk | `/dev/sda2` | ~75 GB free after the §6d emergency. ⚠ ~100 GB grew 22:14→22:59 and partially vanished again — NOT fully explained (§6d); watch `df` before any big job |
 
-## 2. What this session did, in order
+## 2. What this session did, in order (chronological ledger)
 
-### 2a. Expert takeover (Big Will handed it over mid-session)
+1. **Purged the third-party docs** (06_VISION_POLICY + refs) per Big Will; flagged its
+   vision_r1/d1 datasets — which turned out to not even exist on disk.
+2. **Step-0 gate**: ArmKin re-verified on the new 0.225 spawn band — 95.3 % (122/128),
+   band change benign (it only removed the band the grasp table can't execute).
+3. **Collected baseline + DR seed 31 with ArmKin** (95.6 % / 73.7+%) — **WRONG EXPERT.**
+   Big Will (emphatic): the cuRobo expert exists to be USED. All ArmKin shards deleted.
+4. **Built cuRobo collection**: `--shards` mode in run_expert_ws.py (Vision tasks own
+   the 160×120 cameras; frame-precedes-action; 120-step splat warmup; streams one
+   `ep_*.pt` per successful episode — a killed run keeps everything written) +
+   `collect_vision_curobo.sh`. Smoke: format byte-identical vs collect_demos'.
+5. **Collected all four datasets with cuRobo** (~46 h wall, §1 numbers). Two mystery
+   kills handled by resuming the REMAINDER under a fresh seed into the same dir
+   (episodes are iid draws; filenames disjoint; the union is the dataset).
+6. **Trained vbc_base** (nominal-only student): 100k steps, healthy curve.
+7. **Fought the training-RAM war and won** (§6c): anon-preload OOM → mmap → oomd
+   pressure-kill → **in-RAM JPEG (the fix that holds)**.
+8. **Survived a disk-full emergency** (§6d) without losing any collected data.
+9. vbc_vdr relaunched and training at handoff.
 
-Upstream was building the cuRobo pick-and-place expert on the workstation and hit a wall.
-Ported `run_expert_v1.py` → `run_expert_ws.py` (machinery imported, not copied) and found
-three root causes — each with the measurement that proved it (details: 07 doc):
+## 3. What worked (transferable)
 
-1. **Flush planner desk** (collision slab top at z = 0.0) fails EVERY `plan_grasp` with
-   "Goalset planning returned None" — almost certainly upstream's blocker. The pure-cuRobo
-   `probe_ws_plan.py` isolated it in one 30-row sweep; 2 mm recess (the pick-place
-   spike's own convention) fixes all of it.
-2. **`root_quat_w` is XYZW in this Isaac Lab build, not wxyz.** Read wxyz, every cube
-   yaw = π exactly → the grasp-alignment axis was one constant wrong direction. One line;
-   83.3 % → 91.7 % on the same seed. (The env's own `reset_objects` and the og expert's
-   `can_axis` both already encode xyzw — check there before trusting any quat unpack.)
-3. **Grasp-table candidate existence ≠ executability below r ≈ 0.225** (the table's floor
-   is 0.221 and it refuses lateral shifts; the 0.035 matching tolerance still *returns*
-   rows down to ~0.19 which then air-close). All 7 inner-band episodes of a 64-ep run
-   failed. Fixed env-side: spawn floor 0.225.
+* **Detached systemd user services for anything long.** Session-attached background
+  jobs died repeatedly (oomd pressure kills, session restarts, tmp-full task kills);
+  `systemd-run --user --collect -p MemoryMax=26G --unit=<name> bash -c '... > log'`
+  survived everything except the user's own session restart. Watch the LOG FILE, not
+  the process.
+* **Stream shards per episode.** Every interruption cost zero collected data.
+* **Resume-under-fresh-seed** for interrupted collections: same dir, new launch seed,
+  count = remainder. No replays, no filename collisions, iid union.
+* **The per-run success-rate gate** (DR run ≈ nominal 70 %) turned every collection into
+  a physics-leak test for free. Four-for-four passes = the appearance-only proof at
+  production scale.
+* **JPEG-in-RAM for image datasets on small-RAM boxes**: q90, ~7× smaller, 0.1 ms
+  decode ≪ augmentation cost, COW-safe flat buffers (NOT python bytes lists — worker
+  forks refcount-touch object pages and duplicate them), per-frame sums computed in the
+  encode pass so audits never decode.
+* **Journal forensics with exact timestamps** beat guessing: the "phantom" resolved
+  into THREE distinct killers (§6) only when each kill was matched to its minute.
+* **/dev/shm as a diagnostics channel** when the root fs is full and every write fails:
+  it is a separate tmpfs; `{ cmds; } > /dev/shm/x.txt` + Read the file. Also: /proc is
+  readable when nothing else works (`/proc/mounts` settled the filesystem layout).
+* **Small smoke before big launch, always** (3-episode shard smoke caught nothing this
+  time precisely because the format was mirrored, which is the point).
 
-Also: og's pre-close mis-execution gate restored **XY-only** (executed FK pocket vs cube
-\> 22 mm → abort + exclude row). A z-gate on the FK pocket was tried and **retracted**
-(−14 pts): the og's z signal was finger BODY heights from the sim, not FK — different
-measurement, and the FK-pocket z reads 0.07–0.09 on perfectly healthy rows.
+## 4. What didn't work / retracted (with the cost)
 
-### 2b. Visual DR — built, and triple-confirmed before any collection
+* **Defaulting to the ArmKin expert for collection** because it had the higher success
+  rate. ~5 h of collection deleted. The lesson is in directive 1 and in memory: the
+  invested-in component wins over the convenient one, or ASK.
+* **Anon-preloading 4 datasets** (~66 GB raw): kernel cgroup OOM at the 26 GB cap,
+  ~1 min in. (1 dataset/13 GB was fine — the design didn't scale and nobody re-did the
+  arithmetic before launch.)
+* **mmap as the fix**: survived init, then training's random access thrashed page cache
+  inside the cap → **systemd-oomd pressure-kill** (85.8 % > 50 % for 20 s). Pressure,
+  not usage — invisible to `free`, no kernel-OOM trace. Also: `torch.load(mmap=True)`
+  is still USED for the read path of the JPEG encode pass (sequential, fine); it was
+  training off the mmap that died.
+* **60-90 s/episode estimate** from the 3-episode smoke (boot amortization): real
+  throughput was ~30 s/ep. Estimates from tiny smokes are upper bounds, not means.
+* **First two DR "gate" comparisons quoted the wrong baseline** (ArmKin's 95 % vs
+  cuRobo runs) before the pivot straightened out whose number is the gate.
+* **Chasing the phantom killer with theories instead of tracers**: the RAM tracer
+  (30 s RSS samples into a log) and the journal-timestamp match each took minutes and
+  settled what an hour of speculation didn't.
 
-The design in one line: the demo experts are state-based, so visual DR is **free** —
-camera pose/roll/focal jitter (+ rare bumped-rig), wrist-mount jitter, per-env key/fill
-lights + dome shifts, desk-swap (splats ↔ tinted slab), floor cards + ground tint +
-backdrop + visual-only distractors, all per-env per-reset, env-var knobs (`RE3SIM_VDR_*`,
-master `RE3SIM_VDR`, sweep knob `RE3SIM_VDR_SCALE`).
+## 5. The three killers, distinguished (do not conflate them again)
 
-Gates, all scripted and re-runnable (05 doc §4d):
-* **dynamics bit-exact** vs -Vision-v0 (200-step scripted sweep, max |Δobs| = 0.0) — no
-  collider leaks; re-run `probe_vdr_invariance.py` ×2 + `compare_vdr_traj.py` after ANY
-  DR edit;
-* camera path bit-exact vs `set_world_poses_from_view` at zero DR (`probe_vdr_camera.py`);
-* DR draws deterministic in the run seed; varied across resets;
-* 32-env end-to-end shard smoke: DR visibly in recorded frames
-  (`renders/vdr_shard_frames.png`), `inspect_shards` leak-check clean, expert taxonomy
-  unchanged, RAM peak measured.
+| killer | signature | affected | fix |
+|---|---|---|---|
+| kernel cgroup OOM | `Memory cgroup out of memory: Killed process` in `journalctl -b`, anon-rss ≈ cap | anon-preload trainer | fit in RAM (JPEG dataset) |
+| **systemd-oomd** (pressure) | `systemd-oomd ... due to memory pressure ... > 50.00% for > 20s`; NO kernel OOM line | mmap trainer; likely the two collection kills | avoid sustained reclaim churn: fit the working set in RAM; detached unit isolates blast radius |
+| session/external | simultaneous kill of session-attached tasks, no journal trace; one coincided with an X11/NVIDIA display re-probe, the last with a full session restart (Xorg+gnome respawned 22:55) | every session-attached watcher; the detached service only via session restart | detached services + log-file watching; expect and re-arm |
 
-An independent high-effort code review then found (and I fixed) among others: **the
-env-origin double-offset** — child-prim `xformOp:translate` is env-LOCAL, adding the
-origin shipped every per-env light/distractor into a NEIGHBOUR'S cell (grids looked
-plausible because 2×origin lands on another cell of a symmetric grid); augmentation
-severity/gates not scaling with strength; matrix env-var leaks and a stale-ckpt resume
-hazard; `record_video.py`'s unguarded camera re-aim. Full list + fixes in 05 §4e.
+Plus the **tmp/tasks-dir full** failure mode (§6d): when the shared filesystem fills,
+background-task output capture dies with ENOSPC and tasks get stopped — looks exactly
+like the phantom. Check `df` FIRST when tasks start dying.
 
-### 2c. Machine limits (both learned the hard way — the freezes Big Will saw)
+## 6. Incidents worth remembering
 
-* ⭐ **ONE Isaac instance at a time.** Two Kit processes exhausted 31 GB RAM (2.3 GB free,
-  0 swap → hard freeze/reboot).
-* ⭐ **128-env shard collection alone does not fit either**: the collector buffers
-  ~14.7 MB/step × 1018–1118 steps ≈ 16 GB/batch on top of Isaac's 12–14 GB. Hence:
-  **64 envs × 6 batches**, and every collection runs under
-  `systemd-run --user --scope -p MemoryMax=26G` (worst case a killed process, never a
-  frozen box). Measured: 32 envs peak 16.9 GB total system.
-* Disk: shards are **~90 MB/episode** (measured again 2026-08-11: baseline 367 eps =
-  33 GB). After the AWR deletion, 120 GB free vs ~99 GB for the 3 DR seeds — fits with
-  ~20 GB headroom. Drop DR seed 33 first if that erodes; every slice regenerates
-  exactly from its seed.
-* Don't pipe long background runs through `tail`/`grep` — output buffers until exit and
-  you fly blind. Redirect raw.
+* **6a. Two collection kills** (seed 31 @ep 191, seed 33 @ep 275): resumed under seeds
+  131/133, zero data loss. RAM tracer showed the collector steady at ~8 GB — not the
+  cap. Retroactively most consistent with oomd pressure kills (page cache churn from
+  16 GB/dataset of shard writes).
+* **6b. `root_quat_w` is XYZW in this build** — inherited from the expert-takeover
+  session, still the #1 convention trap. cuRobo collision tables sit ~2 mm BELOW the
+  physics surface. Env-child `xformOp:translate` is env-LOCAL (never add env_origins).
+* **6c. The training-RAM war** (§4, three rounds) — ended by JPEG-in-RAM. If camera
+  resolution ever rises, REDO the arithmetic: RAM ≈ eps × steps × H × W × 6 bytes / 7.
+* **6d. Disk-full emergency (23:00-23:20)**: root fs hit 100 % (ext4 reserves ~46 GB
+  for root → user writes fail while `df` still shows "free"); every Write/Bash-capture
+  died with ENOSPC. ~100 GB appeared during the JPEG-encode attempt (22:14→22:59) and
+  ~66 GB of it vanished again around the session restart — the hog was never
+  conclusively identified (journald vacuum? something the session restart released?
+  Big Will cleaning in parallel?). **OPEN ITEM: if disk shrinks mysteriously again,
+  `du -x` the tree immediately and check `journalctl --disk-usage`.** Freed: exp09 AWR
+  (12 GB, authorized), exp08_vision+dagger (14 GB, authorized "if you have to"), early
+  vbc_base ckpts (~700 MB), caches. All four collected datasets verified intact after.
+* **6e. ~30 s/episode, ~3.5 h per 384-episode dataset** — the real collection price.
+  Disk price ~60 MB/successful episode (raw shards).
 
-## 3. What worked / what didn't (the transferable lessons)
+## 7. ⭐ Next steps (the runbook — subject to change, Big Will decides)
 
-**Worked:**
-* *Render-and-look beats every automated gate for appearance code.* Five real DR bugs
-  (grid-floor cue, floating objects on desk-hide, distractor overhang, blown-white
-  backdrops, palette) were caught ONLY by eyeballing stills grids. Nothing in the MDP
-  reads pixels; no assert can catch these.
-* *Bit-exactness probes as standing gates.* The zero-DR camera probe and the dynamics
-  invariance pair caught nothing today precisely because they were run after every edit —
-  they are the reason the DR module can be trusted at all. Convention-trap country
-  (wxyz/xyzw, opengl/ros/world) demands empirical equality, not docstring faith.
-* *Instrument before iterating.* The pocket-vs-cube print solved the yaw-parity bug in
-  one read. Cheap targeted probes beat blind retraining loops.
-* *Small-N A/B on the same seed* (12 eps) to validate a fix, THEN 64-ep honest numbers.
-  But n=64 has ±5.5 pt CI — do not read 73.4 vs 76.6 as a difference.
-* *Import, don't copy* (grasp table, table_candidates, carry rungs, dataset loaders) —
-  every ported constant that was re-derived instead (table z, TCP conventions) was a bug
-  source; everything imported stayed correct.
-
-**Didn't work / retracted:**
-* The FK-pocket **z-gate** (−14 pts, retracted; wrong signal).
-* **6 m floor cards** (neighbour overlap + z-stagger = wrong card visible, mid-episode
-  recolours) → 1.9 m cards + global ground tint.
-* **Hiding the splat desk** alone (objects float on an invisible collider) → swap to a
-  tinted slab instead: "a different table", not a hole in the world.
-* My first two smoke-run camera checks were on a **stale snapshot of the code** (the
-  review agent's findings were against pre-fix files twice) — always re-verify a finding
-  against the current tree before acting on it.
-* Two background Isaac jobs in parallel (froze the machine, twice).
-
-## 4. ⭐ The collection runbook (GREEN-LIT — CUROBO expert, directive 0)
-
+**Step T (in flight): vbc_vdr finishes training.**
+`systemctl --user is-active vbc-vdr-train`; log at `runs/vbc_vdr_train.log`; done when
+it prints `done: 100000 steps`. If the service died (session restart etc.): relaunch
+verbatim —
 ```bash
-conda activate env_isaaclab6 && cd ~/Desktop/isaacLab/reBot/reBot_ACT
-
-# 0. env-health gate (ArmKin, verification ONLY): 95.3 % @128 envs seed 11 on the
-#    0.225 band — ✅ PASSED 2026-08-11. Re-run only if env/expert code moves:
-#    systemd-run --user --scope -p MemoryMax=26G -- \
-#      python -u re3sim/expert/collect_demos.py --headless --num_envs 128 --batches 1 \
-#        --seed 11 --out /tmp/verify.hdf5
-#    Also re-run the two DR gate probes if reBot_RL moved (05 §4d — cheap).
-
-# 1. baseline — cuRobo, single env, serial; ~60-90 s/episode incl. planning;
-#    shards stream per episode (a killed run keeps what it wrote)
-systemd-run --user --scope -p MemoryMax=26G -- \
-  bash re3sim/expert/collect_vision_curobo.sh re3sim/expert/data/vision_base_s21 384 21
-
-# 2. DR set — seeds 31/32/33 (baseline doubles as the ~25 % nominal mix fraction)
-for SEED in 31 32 33; do
-  TASK=Rebot-Workstation-PickPlace1-VisionDR-v0 \
-  systemd-run --user --scope -p MemoryMax=26G -- \
-    bash re3sim/expert/collect_vision_curobo.sh re3sim/expert/data/vision_vdr_s$SEED 384 $SEED
-done
-# gate per run: SUMMARY success_rate ~= the baseline run's (visual DR is
-# state-invisible for the expert; a big drop means a physics leak — STOP and run
-# the invariance probes). ~8-10 h per 384-episode dataset; ~17-25 GB each.
-
-# 3. train baseline + DR policy; eval BOTH on nominal and DR; then the matrix
-python -u re3sim/act/train_flow_vision.py --data re3sim/expert/data/vision_base_s21 \
-    --out re3sim/runs/vbc_base --steps 100000 --seed 1 --num-workers 8
-python -u re3sim/act/train_flow_vision.py --augment 1.0 --num-workers 8 \
-    --data re3sim/expert/data/vision_base_s21 re3sim/expert/data/vision_vdr_s31 \
-           re3sim/expert/data/vision_vdr_s32 re3sim/expert/data/vision_vdr_s33 \
-    --out re3sim/runs/vbc_vdr --steps 100000 --seed 1
-bash re3sim/act/eval_vdr_matrix.sh re3sim/runs/vbc_vdr/ckpt_final.pt re3sim/runs/vdr_matrix
+systemd-run --user --collect -p MemoryMax=26G --unit=vbc-vdr-train bash -c \
+ 'source ~/miniconda3/etc/profile.d/conda.sh && conda activate env_isaaclab6 && \
+  cd ~/Desktop/isaacLab/reBot/reBot_ACT && exec python -u re3sim/act/train_flow_vision.py \
+  --augment 1.0 --num-workers 8 \
+  --data re3sim/expert/data/vision_base_s21 re3sim/expert/data/vision_vdr_s31 \
+        re3sim/expert/data/vision_vdr_s32 re3sim/expert/data/vision_vdr_s33 \
+  --out re3sim/runs/vbc_vdr --steps 100000 --seed 1 > re3sim/runs/vbc_vdr_train.log 2>&1'
 ```
 
-Serial, always — one Isaac job at a time (§2c). Everything is deterministic in its seed.
+**Step E: the 2×2 eval** — BOTH students × {nominal `-Vision-Play-v0`, DR
+`-VisionDR-Play-v0`}, 64+ eps each, `eval_flow_vision.py`, ONE Isaac job at a time,
+MemoryMax wrapper, detached service preferred. This 2×2 is the first real evidence of
+what DR bought. Gate context: expert is 70 %; upstream's student history says grasp
+precision is where students die — check the failure taxonomy FIRST, not just the rate.
 
-## 5. Future plan (subject to change — Big Will decides)
+**Step M: robustness matrix** — `eval_vdr_matrix.sh <best ckpt> re3sim/runs/vdr_matrix`
+(per-axis `RE3SIM_VDR_*` offs at pinned scale). Weakest axis feeds the next DR round.
 
-*(Per Big Will 2026-08-11: the third party's student results (1.6 %/0 %) were built on
-the broken pre-takeover expert and are UNRELATED — do not treat them as evidence about
-this pipeline. Our student is trained fresh, from this campaign's data only.)*
+**Step D: DAgger under DR** — only once the student shows real signal (localise before
+scaling; blind DAgger on a broken student historically moved nothing). The collector
+supports it via `collect_demos.py --dagger-ckpt`-style flow — but that path is
+ArmKin-based; a cuRobo DAgger collector needs the takeover treatment first (directive 1
+applies to DAgger data too — surface this to Big Will before building).
 
-1. **Collect** (runbook above): step-0 gate → baseline s21 → DR seeds 31/32/33.
-2. **Train the pair**: nominal-only student vs (nominal + 3×DR + `--augment 1.0`) student
-   (§4 step 3). Eval BOTH on the nominal task and on -VisionDR-Play — the 2×2 is the
-   first real evidence of what DR buys.
-3. If the student underperforms, **localise before scaling** — handoff-style probes
-   (take over mid-episode from a replayed expert prefix) and per-camera ablations are
-   cheap; blind DAgger/data-scaling rounds are not. Watch specifically: wrist-camera
-   image quality during the descent, cube pixel footprint in the workspace cam
-   (~7 px at 160×120), and action representation (absolute joint targets vs delta) —
-   candidate levers if grasp precision is the weak phase. A camera-resolution change
-   re-prices the RAM/disk budgets in §2c (94 MB/ep scales with pixels; re-measure with
-   one smoke batch first).
-4. **DAgger under DR** once the base student shows signal, then re-eval.
-5. Run the **robustness matrix** (`eval_vdr_matrix.sh`), feed the weakest axis back into
-   the next DR round.
-6. cuRobo-expert hardening if it is to become a collector (07 doc ledger: obstacle-blocked
-   plan refusals ~6 %, close-shoves ~4 %, place-on-rim ~3 %); the ArmKin expert remains
-   the production collector meanwhile.
-7. Real-robot bring-up: the robustness matrix's per-axis success-vs-magnitude curves are
-   the deploy-readiness evidence Big Will asked the whole campaign for.
+**Step R: real-robot evidence** — the matrix's success-vs-magnitude curves are the
+deploy-readiness deliverable the whole campaign exists for.
 
-## 6. Traps, refreshed (append-only; the old lists still hold)
+Watch-items folded into the plan: wrist-camera quality during descent and the ~7 px
+cube in the workspace cam (if grasp precision IS the student's weak phase, higher wrist
+resolution and/or action-representation changes are the levers — both re-price RAM/disk
+per §6c); cuRobo expert hardening ledger (07 doc: plan refusals ~6 %, close-shoves
+~4 %, place-on-rim ~3 %) if its 70 % needs raising.
 
-1. All of HANDOFF_2026-08-09_directive.md §4 (planner population = env count; never
-   sub-32; conda env_isaaclab6; render-product pixel ceilings; splats need per-env or
-   placement; stepped pre-roll before any render; `env_.*` resolved prim paths...).
-2. `root_quat_w` is **XYZW** here (§2a.2). `pose[:, 3:7]` buffers likewise.
-3. cuRobo collision tables must sit ~2 mm BELOW the physics surface (§2a.1).
-4. Env-child `xformOp:translate` is env-LOCAL — never add `env_origins` (§2b).
-5. One Isaac instance; 64-env collection cap; MemoryMax wrapper; ~94 MB/episode (§2c).
-6. The spawn-band change invalidated prior expert numbers — ArmKin re-measured 95.3 %
-   on the new band (§4 step 0, 2026-08-11); the cuRobo expert's ~75 % is still an
-   old-band number.
-7. The doc numbering skips 06: that slot held the purged third-party vision-policy doc
-   (see header note); the cuRobo expert doc is **07** and stays 07 (two earlier commit
-   messages say 06 — follow the file).
-8. `-VisionDR` + `collect_demos`/`record_video`: the env owns the station-cam pose
-   (guarded by `aim_station_cam` presence). If that event is ever renamed, three guards
-   fail OPEN to the fixed aim — grep "aim_station_cam" first.
-9. ⭐ **A phantom killer stops session-attached background jobs** (2026-08-11: two
-   collection runs + one training run + its probe, killed simultaneously, no OOM/system
-   trace; Big Will confirms it is not him; suspicion: session/client reconnect events).
-   Mitigation that works: run long jobs as DETACHED systemd user services
-   (`systemd-run --user --collect -p MemoryMax=26G --unit=<name> bash -c '... > log'`)
-   and watch the log file. Distinct from the REAL cgroup OOM that killed the first
-   vbc_vdr attempt (anon-preloading 4 datasets; fixed by mmap in act/dataset_vision.py).
-   Collection interruptions: resume the remainder under a FRESH seed into the same
-   dataset dir (episodes are iid; filenames stay disjoint).
+## 8. Traps, refreshed (append-only; older lists in the archived handoffs still hold)
+
+1. One Isaac instance at a time; every heavy job under `MemoryMax=26G`; detached
+   service for anything > minutes (§3).
+2. The THREE killers table (§5) + tmp-full task-death mimic. `df` first.
+3. XYZW quats; 2 mm collision recess; env-LOCAL child transforms (6b).
+4. `-Vision*` tasks own the cameras and the station-cam aim (guarded by
+   `aim_station_cam` presence — grep before renaming that event).
+5. Collection resumes: fresh seed, same dir, remainder count. NEVER re-run the same
+   seed into the same dir (replays + collisions).
+6. Dataset loader is JPEG-in-RAM now — if anyone reverts to raw preload or trains off
+   mmap, the killers in §5 return. Camera-resolution changes re-price everything (6c).
+7. `pgrep -f <pattern>` matches its own wrapper shell — use `pgrep -f` output
+   skeptically before declaring "still running" (cost one false alarm).
+8. The 3-episode-smoke throughput estimate was 2-3× pessimistic; size runs from
+   measured full-run numbers (6e).
+9. Big Will's own `reBot_ACT/docs/HANDOFF.md` edit: uncommitted, untouchable.
