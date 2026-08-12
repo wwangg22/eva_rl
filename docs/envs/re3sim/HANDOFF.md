@@ -42,7 +42,7 @@ the 06 gap).
 | ArmKin expert (verification ONLY) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % @128 envs seed 11 on the 0.225 band (env-health gate; do NOT collect with it) |
 | **datasets — ALL cuRobo, ALL intact (re-verified after the disk incident)** | `reBot_ACT/re3sim/expert/data/` | `vision_base_s21` **269 eps (70.1 %)** 16 GB; `vision_vdr_s31` **283 (73.7 %)** 17 GB (seed 31 eps 0-191 + seed 131 × 192 after a kill); `vision_vdr_s32` **279 (72.7 %)** 16 GB; `vision_vdr_s33` **267 (69.5 %)** 15 GB (seed 33 eps 0-275 + seed 133 × 108). **Total 1,098 successful episodes, ~64 GB.** Every DR run ≈ the 70 % nominal gate → appearance-only contract held through ~46 h of production |
 | **nominal student vbc_base** | `reBot_ACT/re3sim/runs/vbc_base/` | TRAINED: 100k steps, 3.2 h, final MSE ~0.03-0.06, `ckpt_final.pt` + ckpts 60k-100k (10k-50k deleted for disk). **NOT yet evaluated** |
-| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | TRAINING at handoff time (relaunched ~23:20 after the session-restart kill; ~15 min encode pass, then ~4-5 h). Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
+| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | ⚠ CORRECTION (2026-08-12): it never trained a step. All three launches (22:05, 22:22, 23:14) were **oomd-killed ~8-9 min in, during the JPEG-encode pass** — see §6f. Fixed by per-dir disk caches; relaunched 2026-08-12 morning. Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
 | -VisionDR tasks (visual DR) | reBot_RL `re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}` | ALL gates PASS (05 §4d) + now production-proven (DR runs ≈ nominal gate) |
 | JPEG dataset loader | `reBot_ACT/act/dataset_vision.py` | in-RAM JPEG q90 (~7×), COW-safe flat buffers, per-frame sums for the black audit; smoke-verified (shapes exact, err 1.5/255, 0.33 ms/sample) |
 | sensor augmentation | `reBot_ACT/act/augment_vision.py`, `--augment` | strength-monotone, identity at 0; vbc_vdr trains with `--augment 1.0` |
@@ -107,8 +107,8 @@ the 06 gap).
 * **mmap as the fix**: survived init, then training's random access thrashed page cache
   inside the cap → **systemd-oomd pressure-kill** (85.8 % > 50 % for 20 s). Pressure,
   not usage — invisible to `free`, no kernel-OOM trace. Also: `torch.load(mmap=True)`
-  is still USED for the read path of the JPEG encode pass (sequential, fine); it was
-  training off the mmap that died.
+  is still USED for the read path of the JPEG encode pass — but ⚠ only ONE dir per
+  process is safe; encoding all four in one process was ALSO pressure-killed (§6f).
 * **60-90 s/episode estimate** from the 3-episode smoke (boot amortization): real
   throughput was ~30 s/ep. Estimates from tiny smokes are upper bounds, not means.
 * **First two DR "gate" comparisons quoted the wrong baseline** (ArmKin's 95 % vs
@@ -151,10 +151,32 @@ like the phantom. Check `df` FIRST when tasks start dying.
   vbc_base ckpts (~700 MB), caches. All four collected datasets verified intact after.
 * **6e. ~30 s/episode, ~3.5 h per 384-episode dataset** — the real collection price.
   Disk price ~60 MB/successful episode (raw shards).
+* **6f. The JPEG-ENCODE PASS was oomd-killed too (found 2026-08-12 morning).** All three
+  vbc_vdr launches (22:05, 22:22, 23:14 on 08-11) died ~8-9 min in with
+  `systemd-oomd killed N process(es) in this unit` — before a single training step; the
+  log never got past the augmentation banner. Root cause: encoding four ~16 GB dirs in
+  ONE 26 GB-capped process streams ~64 GB of mmap pages through the cgroup → cap stays
+  full → permanent reclaim → PSI > 50 % for 20 s. "Sequential mmap read is fine" (the
+  prior belief) is only true PER DIR. `oomctl` shows why exemption isn't an option:
+  oomd monitors the WHOLE `user@1000.service` cgroup at a 50 % limit and picks the
+  hottest descendant — per-unit opt-outs don't remove the monitoring, and pushing
+  pressure elsewhere would just get Xorg or the session killed instead. **Fix:**
+  per-dir disk caches (`act/dataset_vision.py build_cache` / `python act/dataset_vision.py <dir>`,
+  atomic write, shard-count staleness guard) built ONE DIR PER PROCESS
+  (~16 GB + 2.5 GB working set — never fills the cap, zero reclaim); training then
+  loads ~10 GB of caches and never touches the raw shards. Also cuts every future
+  launch by the ~17-min encode. Side note: kill #1 (22:14) is exactly when the §6d
+  mystery ~100 GB growth started — possibly related (55 killed processes' unflushed
+  state?), still unproven.
 
 ## 7. ⭐ Next steps (the runbook — subject to change, Big Will decides)
 
 **Step T (in flight): vbc_vdr finishes training.**
+PREREQUISITE (done 2026-08-12): each data dir must hold a `jpeg_cache_q90.pt` (§6f) —
+rebuild any missing one with a per-dir capped unit:
+`systemd-run --user --wait --collect -p MemoryMax=26G --unit=jpeg-cache-<ds> bash -c
+'…conda activate env_isaaclab6 && cd …/reBot_ACT && exec python -u act/dataset_vision.py
+re3sim/expert/data/<ds>'` — ONE dir per process, never all four in one.
 `systemctl --user is-active vbc-vdr-train`; log at `runs/vbc_vdr_train.log`; done when
 it prints `done: 100000 steps`. If the service died (session restart etc.): relaunch
 verbatim —
@@ -202,8 +224,10 @@ per §6c); cuRobo expert hardening ledger (07 doc: plan refusals ~6 %, close-sho
    `aim_station_cam` presence — grep before renaming that event).
 5. Collection resumes: fresh seed, same dir, remainder count. NEVER re-run the same
    seed into the same dir (replays + collisions).
-6. Dataset loader is JPEG-in-RAM now — if anyone reverts to raw preload or trains off
-   mmap, the killers in §5 return. Camera-resolution changes re-price everything (6c).
+6. Dataset loader is JPEG-in-RAM now, fed by per-dir disk caches (`jpeg_cache_q90.pt`,
+   §6f) — if anyone reverts to raw preload, trains off mmap, or encodes >1 dir in one
+   process, the killers in §5 return. A stale cache fails loudly (shard-count guard) —
+   rebuild it, don't bypass the check. Camera-resolution changes re-price everything (6c).
 7. `pgrep -f <pattern>` matches its own wrapper shell — use `pgrep -f` output
    skeptically before declaring "still running" (cost one false alarm).
 8. The 3-episode-smoke throughput estimate was 2-3× pessimistic; size runs from
