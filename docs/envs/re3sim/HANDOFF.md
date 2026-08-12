@@ -42,13 +42,13 @@ the 06 gap).
 | ArmKin expert (verification ONLY) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % @128 envs seed 11 on the 0.225 band (env-health gate; do NOT collect with it) |
 | **datasets — ALL cuRobo, ALL intact (re-verified after the disk incident)** | `reBot_ACT/re3sim/expert/data/` | `vision_base_s21` **269 eps (70.1 %)** 16 GB; `vision_vdr_s31` **283 (73.7 %)** 17 GB (seed 31 eps 0-191 + seed 131 × 192 after a kill); `vision_vdr_s32` **279 (72.7 %)** 16 GB; `vision_vdr_s33` **267 (69.5 %)** 15 GB (seed 33 eps 0-275 + seed 133 × 108). **Total 1,098 successful episodes, ~64 GB.** Every DR run ≈ the 70 % nominal gate → appearance-only contract held through ~46 h of production |
 | **nominal student vbc_base** | `reBot_ACT/re3sim/runs/vbc_base/` | TRAINED: 100k steps, 3.2 h, final MSE ~0.03-0.06, `ckpt_final.pt` + ckpts 60k-100k (10k-50k deleted for disk). **NOT yet evaluated** |
-| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | ⚠ CORRECTION (2026-08-12): it never trained a step. All three launches (22:05, 22:22, 23:14) were **oomd-killed ~8-9 min in, during the JPEG-encode pass** — see §6f. Fixed by per-dir disk caches; relaunched 2026-08-12 morning. Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
+| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | ⚠ CORRECTION (2026-08-12): the 08-11 launches never trained a step — all three were **oomd-killed in the JPEG-encode pass** (§6f). Fixed by per-dir disk caches; relaunched 08-12 ~08:40, VERIFIED TRAINING (1,098 eps / 575,988 samples loaded from caches in <1 min; loss 0.61→0.28 by step 300; ~3.1 h to 100k). Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
 | -VisionDR tasks (visual DR) | reBot_RL `re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}` | ALL gates PASS (05 §4d) + now production-proven (DR runs ≈ nominal gate) |
 | JPEG dataset loader | `reBot_ACT/act/dataset_vision.py` | in-RAM JPEG q90 (~7×), COW-safe flat buffers, per-frame sums for the black audit; smoke-verified (shapes exact, err 1.5/255, 0.33 ms/sample) |
 | sensor augmentation | `reBot_ACT/act/augment_vision.py`, `--augment` | strength-monotone, identity at 0; vbc_vdr trains with `--augment 1.0` |
 | robustness matrix | `reBot_ACT/re3sim/act/eval_vdr_matrix.sh` | built, unused yet — runs after eval |
 | git | both repos | PUSHED through `reBot_RL a28b677` / `reBot_ACT 46f4201`. This handoff commit goes on top. reBot_ACT `docs/HANDOFF.md` has Big Will's own uncommitted edit — never commit/revert it |
-| disk | `/dev/sda2` | ~75 GB free after the §6d emergency. ⚠ ~100 GB grew 22:14→22:59 and partially vanished again — NOT fully explained (§6d); watch `df` before any big job |
+| disk | `/dev/sda2` | 108 GB free (2026-08-12). The §6d mystery is SOLVED (§6g): snapd auto-refresh was copying a 148 GB VS-Code snap Trash; ~295 GB now quarantined at `~/TRASH_QUARANTINE_2026-08-12/` awaiting Big Will's delete decision (+295 GB if approved) |
 
 ## 2. What this session did, in order (chronological ledger)
 
@@ -143,10 +143,13 @@ like the phantom. Check `df` FIRST when tasks start dying.
 * **6d. Disk-full emergency (23:00-23:20)**: root fs hit 100 % (ext4 reserves ~46 GB
   for root → user writes fail while `df` still shows "free"); every Write/Bash-capture
   died with ENOSPC. ~100 GB appeared during the JPEG-encode attempt (22:14→22:59) and
-  ~66 GB of it vanished again around the session restart — the hog was never
-  conclusively identified (journald vacuum? something the session restart released?
-  Big Will cleaning in parallel?). **OPEN ITEM: if disk shrinks mysteriously again,
-  `du -x` the tree immediately and check `journalctl --disk-usage`.** Freed: exp09 AWR
+  ~66 GB of it vanished again around the session restart. **✅ RESOLVED 2026-08-12
+  (§6g): it was snapd auto-refreshing the VS Code snap** — `snap change 92` started
+  21:50 PDT and `cp -av`'d the per-revision user dir `~/snap/code/254` → `256`,
+  which contained a **148 GB private Trash** (files "deleted" via VS Code's move-to-
+  trash never free space — they land in `~/snap/code/<rev>/.local/share/Trash`).
+  The vanish was snapd's undo removing the partial copy when the change failed on the
+  full disk. Freed: exp09 AWR
   (12 GB, authorized), exp08_vision+dagger (14 GB, authorized "if you have to"), early
   vbc_base ckpts (~700 MB), caches. All four collected datasets verified intact after.
 * **6e. ~30 s/episode, ~3.5 h per 384-episode dataset** — the real collection price.
@@ -166,8 +169,28 @@ like the phantom. Check `df` FIRST when tasks start dying.
   (~16 GB + 2.5 GB working set — never fills the cap, zero reclaim); training then
   loads ~10 GB of caches and never touches the raw shards. Also cuts every future
   launch by the ~17-min encode. Side note: kill #1 (22:14) is exactly when the §6d
-  mystery ~100 GB growth started — possibly related (55 killed processes' unflushed
-  state?), still unproven.
+  mystery ~100 GB growth started — that turned out to be coincidence: the growth was
+  snapd's snap-refresh copy (§6g), running since 21:50.
+* **6g. The snap-Trash discovery (2026-08-12 morning) — the whole disk mystery, solved.**
+  Symptom: free space fell 107 G → 42 G during the cache builds with nothing of ours
+  writing. Forensics per the §6d playbook (`/proc/<pid>/io` write_bytes scan) found
+  `root: cp -av ~/snap/code/254 ~/snap/code/256` — snapd auto-refresh (change 92,
+  started 08-11 21:50 PDT, the §6d window) copying the VS Code snap's per-revision
+  user dir. Inside: `.local/share/Trash` = **148 GB of VS-Code-trashed files**
+  (1,707 old `adaption_checkpoint_*.pt`, LLaVA-Pretrain 16 G, mydata_yolo 15 G,
+  `teacher_batch_*.pt` — old unrelated projects; "move to trash" in a snapped app
+  frees NOTHING), duplicated in revision 252 by the previous refresh = ~296 GB total.
+  Resolution WITHOUT deleting anything: renamed both Trash dirs out from under the
+  copy (`mv` = same-fs rename, reversible) → the cp died, change 92 → Error, snapd's
+  undo freed the partial 45 G copy; then moved both to
+  `~/TRASH_QUARANTINE_2026-08-12/{rev252,rev254}_Trash` so the next auto-refresh
+  can't re-copy them. Full inventory saved (session scratchpad,
+  `trash_inventory_2026-08-12.txt`). All four datasets re-verified (269/283/279/267)
+  before touching anything. **PENDING BIG WILL: permanently delete the quarantine →
+  frees ~295 GB** (this may BE the "more storage" he promised to arrange). Lessons:
+  files deleted via VS Code go to a snap-private trash and still occupy disk; snapd
+  auto-refresh silently duplicates the whole per-revision dir; a root `cp` can eat
+  the disk with no user process visible in `ps aux | sort -%mem`.
 
 ## 7. ⭐ Next steps (the runbook — subject to change, Big Will decides)
 
@@ -233,3 +256,8 @@ per §6c); cuRobo expert hardening ledger (07 doc: plan refusals ~6 %, close-sho
 8. The 3-episode-smoke throughput estimate was 2-3× pessimistic; size runs from
    measured full-run numbers (6e).
 9. Big Will's own `reBot_ACT/docs/HANDOFF.md` edit: uncommitted, untouchable.
+10. NEVER delete big files via VS Code's "move to trash" on this box — the snapped
+    VS Code has a private trash (`~/snap/code/<rev>/.local/share/Trash`) that frees
+    nothing and gets DUPLICATED by every snap auto-refresh (§6g). Delete with `rm`.
+    When disk vanishes with no visible process, scan `/proc/<pid>/io` write_bytes —
+    a root `cp` from snapd won't show up in memory-sorted `ps`.
