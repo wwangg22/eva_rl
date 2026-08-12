@@ -220,10 +220,23 @@ sharpens it). Taxonomy: `no_lift` 61–81 % everywhere, `dropped` 0 % everywhere
 grasp IS the bottleneck, the post-grasp funnel is near-lossless, exactly as upstream
 predicted. Driver: `re3sim/act/run_eval_2x2.sh`; jsons in `re3sim/runs/eval_2x2/`.
 
-**Step M: robustness matrix — IN FLIGHT 2026-08-12** as unit `vdr-matrix` on
-vbc_vdr/ckpt_final (driver log `runs/vdr_matrix_driver.log`, rows land in
-`runs/vdr_matrix/`; resume-safe — rerun the same command to continue). 10 rows × 64
-eps ≈ 4 h. Weakest axis feeds the next DR round.
+**Step M: robustness matrix — ✅ DONE 2026-08-12 (see [09_VDR_MATRIX.md](09_VDR_MATRIX.md)).**
+No axis collapses: all single axes 21.9–23.4 % vs 31.2 % nominal; all-axes@1.5×
+held-out keeps 20.3 %; `dropped` 0.0 % across all 640 eps. Camera pose is the
+leading (1σ) suspect — only row that decays with severity (18.8 % @1.5×, no_lift
+81 %). Verdict: robustness curve is shallow/uniform → the binding constraint is the
+base grasp rate, NOT robustness → DAgger, not more DR axes.
+
+**Step D′ (NEW, replaces the "ask first" gate in Step D): cuRobo DAgger — APPROVED
+and BUILT 2026-08-12.** Big Will: "Use curobo for dagger." `run_expert_ws.py` gained
+`--dagger-ckpt CKPT --dagger-min 60 --dagger-max 300` (requires `--shards`):
+takeover design mirrored from collect_demos.py — student drives 60–300 steps after
+the splat warmup, the drifted state becomes the episode's initial condition, the
+expert plans from it, the shard opens at takeover (normal executed-action shards;
+they mix with base data in the loader with no changes). Launch:
+`TASK=…-VisionDR-v0 bash collect_vision_curobo.sh <out> <n> <seed>
+--dagger-ckpt re3sim/runs/vbc_vdr/ckpt_final.pt` (wrapper unchanged, args pass
+through). Smoke-gated before any production run.
 
 **Step D: DAgger under DR** — only once the student shows real signal (localise before
 scaling; blind DAgger on a broken student historically moved nothing). The collector
