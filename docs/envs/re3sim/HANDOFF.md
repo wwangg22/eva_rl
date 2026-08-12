@@ -41,8 +41,8 @@ the 06 gap).
 | **cuRobo expert — THE COLLECTOR** | `reBot_ACT/re3sim/expert/run_expert_ws.py` + `collect_vision_curobo.sh` | **70.1 % on the current env** (269/384, seed 21, jitter 0.15 — the reference gate); `--shards` mode verified byte-compatible with the training stack (frame-precedes-action, 120-step splat warmup, successes-only). ~30 s/episode wall (measured over 1,536 episodes; NOT the 60-90 s first estimated) |
 | ArmKin expert (verification ONLY) | `reBot_ACT/re3sim/expert/{workstation_expert,collect_demos}.py` | 95.3 % @128 envs seed 11 on the 0.225 band (env-health gate; do NOT collect with it) |
 | **datasets — ALL cuRobo, ALL intact (re-verified after the disk incident)** | `reBot_ACT/re3sim/expert/data/` | `vision_base_s21` **269 eps (70.1 %)** 16 GB; `vision_vdr_s31` **283 (73.7 %)** 17 GB (seed 31 eps 0-191 + seed 131 × 192 after a kill); `vision_vdr_s32` **279 (72.7 %)** 16 GB; `vision_vdr_s33` **267 (69.5 %)** 15 GB (seed 33 eps 0-275 + seed 133 × 108). **Total 1,098 successful episodes, ~64 GB.** Every DR run ≈ the 70 % nominal gate → appearance-only contract held through ~46 h of production |
-| **nominal student vbc_base** | `reBot_ACT/re3sim/runs/vbc_base/` | TRAINED: 100k steps, 3.2 h, final MSE ~0.03-0.06, `ckpt_final.pt` + ckpts 60k-100k (10k-50k deleted for disk). **NOT yet evaluated** |
-| **DR student vbc_vdr** | service `vbc-vdr-train` → `runs/vbc_vdr/`, log `runs/vbc_vdr_train.log` | ⚠ CORRECTION (2026-08-12): the 08-11 launches never trained a step — all three were **oomd-killed in the JPEG-encode pass** (§6f). Fixed by per-dir disk caches; relaunched 08-12 ~08:40, VERIFIED TRAINING (1,098 eps / 575,988 samples loaded from caches in <1 min; loss 0.61→0.28 by step 300; ~3.1 h to 100k). Check: `systemctl --user is-active vbc-vdr-train; tail runs/vbc_vdr_train.log` |
+| **nominal student vbc_base** | `reBot_ACT/re3sim/runs/vbc_base/` | TRAINED (100k steps, final MSE ~0.03-0.06). EVALUATED 08-12: **25.0 % nominal / 14.1 % DR** (64 eps each, 08_STUDENT_2X2.md) |
+| **DR student vbc_vdr** | `reBot_ACT/re3sim/runs/vbc_vdr/` | TRAINED 08-12 (100k steps in 3.1 h off the §6f per-dir caches, 1,098 eps / 575,988 samples, final MSE 0.037; the 08-11 "training" never ran a step — §6f). EVALUATED: **26.6 % nominal / 20.3 % DR** (08_STUDENT_2X2.md). Robustness matrix running on its ckpt_final |
 | -VisionDR tasks (visual DR) | reBot_RL `re3sim/{mdp/visual_dr.py, workstation_vision_dr_env_cfg.py}` | ALL gates PASS (05 §4d) + now production-proven (DR runs ≈ nominal gate) |
 | JPEG dataset loader | `reBot_ACT/act/dataset_vision.py` | in-RAM JPEG q90 (~7×), COW-safe flat buffers, per-frame sums for the black audit; smoke-verified (shapes exact, err 1.5/255, 0.33 ms/sample) |
 | sensor augmentation | `reBot_ACT/act/augment_vision.py`, `--augment` | strength-monotone, identity at 0; vbc_vdr trains with `--augment 1.0` |
@@ -213,14 +213,17 @@ systemd-run --user --collect -p MemoryMax=26G --unit=vbc-vdr-train bash -c \
   --out re3sim/runs/vbc_vdr --steps 100000 --seed 1 > re3sim/runs/vbc_vdr_train.log 2>&1'
 ```
 
-**Step E: the 2×2 eval** — BOTH students × {nominal `-Vision-Play-v0`, DR
-`-VisionDR-Play-v0`}, 64+ eps each, `eval_flow_vision.py`, ONE Isaac job at a time,
-MemoryMax wrapper, detached service preferred. This 2×2 is the first real evidence of
-what DR bought. Gate context: expert is 70 %; upstream's student history says grasp
-precision is where students die — check the failure taxonomy FIRST, not just the rate.
+**Step E: the 2×2 eval — ✅ DONE 2026-08-12 (see [08_STUDENT_2X2.md](08_STUDENT_2X2.md)).**
+vbc_base 25.0 % nom → 14.1 % DR; vbc_vdr 26.6 % nom → 20.3 % DR. DR training cost
+nothing nominal and halved-ish the degradation (directional at n=64 — ~1σ, matrix
+sharpens it). Taxonomy: `no_lift` 61–81 % everywhere, `dropped` 0 % everywhere — the
+grasp IS the bottleneck, the post-grasp funnel is near-lossless, exactly as upstream
+predicted. Driver: `re3sim/act/run_eval_2x2.sh`; jsons in `re3sim/runs/eval_2x2/`.
 
-**Step M: robustness matrix** — `eval_vdr_matrix.sh <best ckpt> re3sim/runs/vdr_matrix`
-(per-axis `RE3SIM_VDR_*` offs at pinned scale). Weakest axis feeds the next DR round.
+**Step M: robustness matrix — IN FLIGHT 2026-08-12** as unit `vdr-matrix` on
+vbc_vdr/ckpt_final (driver log `runs/vdr_matrix_driver.log`, rows land in
+`runs/vdr_matrix/`; resume-safe — rerun the same command to continue). 10 rows × 64
+eps ≈ 4 h. Weakest axis feeds the next DR round.
 
 **Step D: DAgger under DR** — only once the student shows real signal (localise before
 scaling; blind DAgger on a broken student historically moved nothing). The collector
