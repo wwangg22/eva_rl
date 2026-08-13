@@ -70,26 +70,41 @@ not eval noise.
 * **Seed variance**: vbc_vdr2 used seed 2; vbc_vdr used seed 1. A 4× collapse from
   seed alone would be extraordinary, but it is the cheapest hypothesis to kill.
 
-## The next probe (in flight, unit `ablate-dagger-sub40`)
+## Round 2 of evidence (2026-08-13 morning) — the full elimination
 
-**Mix-ratio test**: base 4 + a 40-episode subsample of dagger (~3 % of samples,
-every 6th shard), seed 1, both eval cells (`runs/vbc_vdr2_sub40`).
+* **Sub40 (~3 % mix) ALSO collapsed**: 4.7 % / 4.7 %. Dose-independence.
+* **Eval acquitted**: re-evaluating the known-good vbc_vdr ckpt in the same-day
+  environment reproduced **25.0 %** (vs 26.6 % original) — the eval harness did not
+  drift.
+* **Normalizer acquitted**: stats tensors differ by ≤0.025 across good/collapsed
+  ckpts. **No NaNs / outliers**: dagger proprio/action ranges ≈ base ranges across
+  all 238 shards.
+* **Open-loop probes (the decisive ones):** on base-dataset states, phase-binned
+  chunk-prediction MSE is *equally good for all three policies* (0.005–0.036
+  everywhere; sub40 ≈ vdr even at t=0). The collapsed policies imitate the expert
+  perfectly on expert states — **the failure exists only in closed loop.**
 
-* If ~3 % still collapses → per-sample toxicity, a bug is still hiding in the shards.
-* If it's neutral/positive → the 16 % ratio was an overdose; find the tolerable dose
-  (classic DAgger β-mixing) or switch designs.
+## Conclusion (evidence-backed)
 
-## Design fork for Big Will (decision pending)
+The takeover-DAgger data — at any tested dose — **destabilizes the closed loop
+without touching open-loop competence.** Mechanism (hypothesis, but the only one
+consistent with all of the above): takeover demos pair *mildly-to-strongly
+off-nominal states* with *recovery-transit actions*; in closed loop the student's
+own small deviations continuously visit mildly off-nominal states, so it falls into
+recovery-mode behaviour it cannot execute to completion, drifts further off-nominal,
+and re-triggers — an attractor. Even 40 episodes plant it. Note the takeover demos
+supervise states the EXPERT visits after takeover, never the states the STUDENT
+actually visits under its own policy — precisely the covariate-shift gap true DAgger
+exists to close.
 
-1. **Dose the takeover data** (cheapest): cap dagger at the ratio the sub40 probe
-   supports, possibly trimming each episode's long transit prefix.
-2. **True relabel-DAgger with cuRobo**: label the student's own visited states with
-   expert chunk plans (exp08's `label_chunks` flavor) — plans from each chunk
-   boundary, ~2-3× collection cost, but supervision lands exactly on the student's
-   state distribution instead of demos that merely start there.
-3. **Drop DAgger for now**: the 2×2 + matrix say the base student's grasp is weak
-   everywhere, not just off-distribution — more/better base demos or higher wrist
-   resolution may be the truer lever.
+**Recommendation to Big Will**: reject the takeover flavor (evidence above); if
+DAgger continues, build **true relabel-DAgger with cuRobo** — roll the student
+closed-loop, at each chunk boundary plan the expert's chunk FROM the student's
+actual state, store `label_chunks` (the loader already supports that shard type,
+untouched all along). That supervises exactly the distribution where the disease
+lives. Alternative: shelve DAgger and push base-data levers (demo count, wrist
+resolution). Takeover data (`dagger_vdr_s41`) stays on disk for reference but must
+NOT enter any training mix.
 
 ## Rules this adds (candidate traps until the ablation rules)
 
