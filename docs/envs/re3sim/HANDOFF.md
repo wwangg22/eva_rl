@@ -235,15 +235,22 @@ the splat warmup, the drifted state becomes the episode's initial condition, the
 expert plans from it, the shard opens at takeover (normal executed-action shards;
 they mix with base data in the loader with no changes). Launch:
 `TASK=…-VisionDR-v0 bash collect_vision_curobo.sh <out> <n> <seed>
---dagger-ckpt re3sim/runs/vbc_vdr/ckpt_final.pt` (wrapper unchanged, args pass
-through). SMOKE PASSED (3 eps: drives 278/207/144; 2 successes verified through
-WorkstationVisionDataset; 1 unplannable drift correctly skipped). **ROUND 1 IN
-FLIGHT** since 08-12 ~13:40: unit `dagger-collect-s41`, 384 eps seed 41 under
-`-VisionDR-v0`, driver vbc_vdr, → `expert/data/dagger_vdr_s41/`, log
-`runs/dagger_s41_collect.log`. Expect a LOWER success rate than the 70 % gate
-(the expert starts from student-drifted states — that is the point); note the
-rate it does get as the round-1 recovery gate. Next: retrain on base 4 + dagger
-round(s), then re-run the 2×2.
+--dagger-ckpt re3sim/runs/vbc_vdr/ckpt_final.pt`.
+⚠ **TAKEOVER FLAVOR REJECTED 2026-08-13** — its data collapses any student it
+touches, at any dose (see [10_DAGGER_R1_POSTMORTEM.md](10_DAGGER_R1_POSTMORTEM.md);
+`dagger_vdr_s41` stays on disk, excluded from every training mix).
+**Step D″ (current): RELABEL DAgger** — Big Will: "Let's fix dagger."
+`--dagger-mode relabel` (now the default): the student drives the whole episode,
+every 15 steps the expert plans its next-50 chunk FROM the student's live state
+(fetch_cube's exact grammar; retreat-home when nothing plans), shards carry
+`label_chunks` at labeled states only, ALL episodes kept. Smoke: ~70 s/ep,
+20-23 labels + 7-10 unplannable per 450-step episode, loader auto-detects.
+ROUND 1 IN FLIGHT 08-13 ~09:45: unit `dagger-relabel-s51`, 384 eps seed 51,
+`-VisionDR-v0`, vbc_vdr driving → `expert/data/dagger_relabel_s51/` (~8 h).
+Then: per-dir cache, train vbc_vdr3 = base 4 + relabel, both eval cells vs
+vbc_vdr (26.6 %/20.3 % is the bar). Note the label mass is small (~9 k samples
+≈ 1.5 %) — if vbc_vdr3 moves nothing, consider denser labels/more episodes
+before judging the method.
 
 **Step D: DAgger under DR** — only once the student shows real signal (localise before
 scaling; blind DAgger on a broken student historically moved nothing). The collector
