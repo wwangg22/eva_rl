@@ -186,8 +186,8 @@ like the phantom. Check `df` FIRST when tasks start dying.
   `~/TRASH_QUARANTINE_2026-08-12/{rev252,rev254}_Trash` so the next auto-refresh
   can't re-copy them. Full inventory saved (session scratchpad,
   `trash_inventory_2026-08-12.txt`). All four datasets re-verified (269/283/279/267)
-  before touching anything. **PENDING BIG WILL: permanently delete the quarantine →
-  frees ~295 GB** (this may BE the "more storage" he promised to arrange). Lessons:
+  before touching anything. **Quarantine DELETED on Big Will's approval later that
+  day → disk at 388 GB free.** Lessons:
   files deleted via VS Code go to a snap-private trash and still occupy disk; snapd
   auto-refresh silently duplicates the whole per-revision dir; a root `cp` can eat
   the disk with no user process visible in `ps aux | sort -%mem`.
@@ -236,7 +236,14 @@ expert plans from it, the shard opens at takeover (normal executed-action shards
 they mix with base data in the loader with no changes). Launch:
 `TASK=…-VisionDR-v0 bash collect_vision_curobo.sh <out> <n> <seed>
 --dagger-ckpt re3sim/runs/vbc_vdr/ckpt_final.pt` (wrapper unchanged, args pass
-through). Smoke-gated before any production run.
+through). SMOKE PASSED (3 eps: drives 278/207/144; 2 successes verified through
+WorkstationVisionDataset; 1 unplannable drift correctly skipped). **ROUND 1 IN
+FLIGHT** since 08-12 ~13:40: unit `dagger-collect-s41`, 384 eps seed 41 under
+`-VisionDR-v0`, driver vbc_vdr, → `expert/data/dagger_vdr_s41/`, log
+`runs/dagger_s41_collect.log`. Expect a LOWER success rate than the 70 % gate
+(the expert starts from student-drifted states — that is the point); note the
+rate it does get as the round-1 recovery gate. Next: retrain on base 4 + dagger
+round(s), then re-run the 2×2.
 
 **Step D: DAgger under DR** — only once the student shows real signal (localise before
 scaling; blind DAgger on a broken student historically moved nothing). The collector
