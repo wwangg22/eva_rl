@@ -1,8 +1,18 @@
 # 10 — DAgger round 1 postmortem: the student collapsed; the investigation
 
-*2026-08-12 evening, updated 08-13 early. Status: **DATA-CAUSAL, PROVEN** — the
-seed ablation ruled variance out; the mix-ratio probe is in flight. Every claim below
-is tagged measured / tested / hypothesis.*
+*2026-08-12 evening, updated 08-13 late. Status: **REOPENED** — the relabel flavor
+(true DAgger, completely different data structure) ALSO collapsed at a 1.35 % mix
+(vbc_vdr3: 3.1 %/3.1 %), which breaks the "takeover data is toxic" story: at that
+dose, no distributional mechanism is credible. The remaining confound is perfect:
+every training that succeeded ran before 08-12 noon; every training since had
+dagger data AND collapsed. **The mandatory control is in flight** (unit `repro-vdr`):
+exact repro of vbc_vdr, base 4 only, seed 1, today's environment. Repro ≈26 % →
+any dagger admixture is genuinely toxic (hunt the sharp mechanism: mixed-shard-type
+training path, label-chunk stat skew — vdr3's action_mean shifted 0.26 via the
+50-row-per-label stats mass — or contract subtlety). Repro collapses → the TRAINING
+stack broke after 08-12 noon and every dagger conclusion below is an artifact.
+Normalizer note: sub40 collapsed with ≤0.004 stat diffs, so stat skew alone is NOT
+the common mechanism.*
 
 ## ⭐ Ablation verdict (2026-08-13 ~02:30)
 
