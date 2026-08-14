@@ -29,12 +29,19 @@ fresh sample from a wide distribution. Consequences, in order of importance:
 2. What survives: four independent dagger-mix trainings all scored **3.1–6.2 %**,
    below the non-dagger band seen so far (12.5–26.6 %) — dagger harm remains
    likely, but its size is unknown until the band is mapped.
-3. `repro2` (same config again) is in flight to give the band a second point.
+3. **repro2 = 15.6 %** (08-14 early). The base-config band is {12.5, 15.6, 26.6}:
+   mean ≈ 18 %, and the original 26.6 % was the lucky draw. Against that band, the
+   four dagger-mix runs (3.1–6.2 %) sit strictly below every non-dagger run —
+   rank-test p ≈ 0.03 — so **dagger harm is real (≈ −14 pts vs the band mean),
+   while every OTHER pairwise conclusion (base vs vdr, DR deltas) dissolves into
+   training noise.**
 4. Going forward, no two configs may be compared on single runs — minimum 2–3
    trainings per config, and eval with 4 seeds (128 eps) rather than 2. Recipe
    changes that stabilize training (EMA of weights, longer/cosine schedules,
    deeper eval) are candidates — Big Will's call, since the recipe's numbers were
    paid for upstream.
+5. Overnight (unit `night-band`): repro3 + 2-extra-seed evals of all band ckpts
+   to tighten both sides of the picture.
 
 ## ⭐ Ablation verdict (2026-08-13 ~02:30)
 
