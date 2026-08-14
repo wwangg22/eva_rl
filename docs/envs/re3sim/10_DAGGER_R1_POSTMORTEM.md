@@ -43,6 +43,35 @@ fresh sample from a wide distribution. Consequences, in order of importance:
 5. Overnight (unit `night-band`): repro3 + 2-extra-seed evals of all band ckpts
    to tighten both sides of the picture.
 
+## FINAL numbers (08-14, 4 eval seeds where available)
+
+| run | data | s88000/1 | s88002/3 | combined |
+|---|---|---|---|---|
+| vbc_vdr | base 4 | 26.6 % | 28.1 % | **27.3 %** |
+| repro | base 4 | 12.5 % | 29.7 % | **21.1 %** |
+| repro2 | base 4 | 15.6 % | 25.0 % | **20.3 %** |
+| repro3 | base 4 | — | 23.4 % | **23.4 %** |
+| vdr2_s1 | +takeover 16 % | 3.1 % | 4.7 % | **3.9 %** |
+| sub40 | +takeover 3 % | 4.7 % | 1.6 % | **3.1 %** |
+| vdr3 | +relabel 1.35 % | 3.1 % | 6.2 % | **4.7 %** |
+
+Three separated facts: (a) **training variance is modest** — the base-config band is
+20–27 % at n=128; (b) **eval-seed-pair variance is large** — the same ckpt swings
+±8 pts between seed pairs (88000/1 is adversarial for some ckpts), so ALL future
+evals use ≥4 seeds; (c) **the dagger collapse is fully robust** — both flavors, all
+doses down to 1.35 %, both seed pairs: ~23 % → ~4 %. The "12.5 % repro panic" was
+(b) masquerading as (a).
+
+## The last mechanical suspect (control in flight, unit `dup-control`)
+
+Every collapsed run was also the only kind of run with FIVE data dirs. Control:
+base 4 + a 5th dir of 39 duplicated base shards (content-neutral, structure-
+identical), 4-seed eval. Collapses → the bug is multi-dir plumbing in the loader,
+and BOTH dagger flavors are innocent. Trains normally → dagger CONTENT is convicted
+and the mechanism is behavioral (the recovery-attractor story, which uniquely fits
+dose-independence: rollout-visited states are dense in the dagger-state manifold
+regardless of episode count).
+
 ## ⭐ Ablation verdict (2026-08-13 ~02:30)
 
 **base 4 + dagger @ seed 1** (vbc_vdr's own seed): **3.1 % nominal / 4.7 % DR**,
