@@ -14,6 +14,28 @@ stack broke after 08-12 noon and every dagger conclusion below is an artifact.
 Normalizer note: sub40 collapsed with ≤0.004 stat diffs, so stat skew alone is NOT
 the common mechanism.*
 
+## ⭐ The repro verdict (08-13 night): TRAINING-RUN VARIANCE IS THE STORY
+
+The exact repro of vbc_vdr (base 4 only, seed 1, identical command) scored
+**12.5 %** — neither the original 26.6 % nor the dagger-mix 3–6 %. Same-config
+retrains are NOT reproducible: seed pins the data order at best; CUDA kernels,
+DataLoader worker scheduling and augmentation draw order make every training a
+fresh sample from a wide distribution. Consequences, in order of importance:
+
+1. **Every single-run comparison this campaign has made carries ±huge error bars**:
+   base-vs-vdr (25.0 vs 26.6), the DR-degradation deltas, and the magnitude (not
+   necessarily the existence) of the dagger collapse. Eval-side noise for a FIXED
+   ckpt is small (26.6 → 25.0 on re-eval); the variance lives in TRAINING.
+2. What survives: four independent dagger-mix trainings all scored **3.1–6.2 %**,
+   below the non-dagger band seen so far (12.5–26.6 %) — dagger harm remains
+   likely, but its size is unknown until the band is mapped.
+3. `repro2` (same config again) is in flight to give the band a second point.
+4. Going forward, no two configs may be compared on single runs — minimum 2–3
+   trainings per config, and eval with 4 seeds (128 eps) rather than 2. Recipe
+   changes that stabilize training (EMA of weights, longer/cosine schedules,
+   deeper eval) are candidates — Big Will's call, since the recipe's numbers were
+   paid for upstream.
+
 ## ⭐ Ablation verdict (2026-08-13 ~02:30)
 
 **base 4 + dagger @ seed 1** (vbc_vdr's own seed): **3.1 % nominal / 4.7 % DR**,
